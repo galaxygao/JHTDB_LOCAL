@@ -1,0 +1,144 @@
+{
+  "frames": [
+    {
+      "frame": 1,
+      "time": 0.0,
+      "velocity_path": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\qpower_analysis\\output\\subset_12blocks_t000001\\velocity.npy",
+      "velocity_key": "velocity",
+      "pressure_path": null,
+      "pressure_gradient_path": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\qpower_analysis\\output\\subset_12blocks_t000001\\pressure_gradient.npy",
+      "pressure_gradient_keys": [
+        "pressure_gradient"
+      ]
+    }
+  ],
+  "axis_order": "zyx",
+  "domain_lengths_xyz": [
+    4.71238898038469,
+    1.5707963267948966,
+    0.39269908169872414
+  ],
+  "periodic_xyz": [
+    false,
+    false,
+    false
+  ],
+  "gradient_method": "finite_difference",
+  "pressure_definition": "P = p/rho",
+  "alphas": [
+    1.0,
+    2.0,
+    3.0,
+    4.0
+  ],
+  "betas": [
+    1.0,
+    1.5,
+    2.0,
+    3.0
+  ],
+  "event_mode": "positive",
+  "n_conditional_bins": 60,
+  "min_bin_count": 100,
+  "conditional_percentile": 99.9,
+  "overlay_pairs": null,
+  "visualization_stride": 2,
+  "output_root": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\qpower_analysis\\output\\subset_12blocks_t000001\\analysis",
+  "subset_scope": {
+    "kind": "local_subvolume_demo",
+    "origin_xyz": [
+      0,
+      0,
+      0
+    ],
+    "shape_xyz": [
+      768,
+      256,
+      64
+    ],
+    "full_grid_shape_xyz": [
+      1024,
+      1024,
+      1024
+    ],
+    "pressure_tiles_checksum_verified": 3072,
+    "normalization": "q_rms and mean(u2) computed within this subset only",
+    "limitations": "Not full-domain statistics or a full-domain filtered multi-sigma calculation.",
+    "gradient": "Existing server fd4noint gradient; no differentiation or periodic wrapping of the crop.",
+    "sources": {
+      "velocity": {
+        "path": "C:\\Xingqun_Gao\\persistent\\state\\inputs\\t000001\\velocity_cache.zarr",
+        "attrs": {
+          "axis_order": [
+            "component",
+            "z",
+            "y",
+            "x"
+          ],
+          "components": [
+            "ux",
+            "uy",
+            "uz"
+          ],
+          "dataset": "isotropic1024coarse",
+          "domain": "[0,2pi)^3",
+          "dtype": "float32",
+          "grid_shape_xyz": [
+            1024,
+            1024,
+            1024
+          ],
+          "manifest_hash": "aeb7921d0ac1b25a6e455c927bccc432eef3569f7f3a37c3441d800bab0559a4",
+          "periodic": [
+            true,
+            true,
+            true
+          ],
+          "physical_time": 0.0,
+          "status": "validated",
+          "time_index": 1,
+          "variable": "velocity"
+        }
+      },
+      "pressure_gradient": {
+        "path": "C:\\Xingqun_Gao\\persistent\\state\\inputs\\t000001\\pressure_gradient_cache.zarr",
+        "attrs": {
+          "axis_order": [
+            "component",
+            "z",
+            "y",
+            "x"
+          ],
+          "components": [
+            "dPdx",
+            "dPdy",
+            "dPdz"
+          ],
+          "dataset": "isotropic1024coarse",
+          "domain": "[0,2pi)^3",
+          "dtype": "float32",
+          "grid_shape_xyz": [
+            1024,
+            1024,
+            1024
+          ],
+          "periodic": [
+            true,
+            true,
+            true
+          ],
+          "physical_time": 0.0,
+          "pressure_definition": "JHTDB kinematic pressure P=p/rho",
+          "source": "JHTDB getData",
+          "source_variable": "pressure",
+          "spatial_method": "fd4noint",
+          "spatial_operator": "gradient",
+          "status": "fetching",
+          "temporal_method": "none",
+          "time_index": 1,
+          "variable": "pressure_gradient"
+        }
+      }
+    }
+  }
+}
