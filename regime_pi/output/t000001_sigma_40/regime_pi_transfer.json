@@ -1,0 +1,227 @@
+{
+  "closure": {
+    "maximum_relative_residual": 1.90155569727523e-15,
+    "passed": true,
+    "threshold": 1e-12
+  },
+  "coverage": {
+    "complete": true,
+    "regime_point_count": 1073741824,
+    "target_point_count": 1073741824
+  },
+  "filter_type": "gaussian",
+  "metric_definitions": {
+    "fraction": "N_q_direction / N_q",
+    "intensity": "sum(abs(pi_direction)) / N_q = mean * fraction",
+    "mean": "sum(abs(pi_direction)) / N_q_direction"
+  },
+  "passed": true,
+  "physical_time": 0.0,
+  "point_count": 1073741824,
+  "regime_definition": "same threshold-independent six Cq regimes as cq.json",
+  "regime_order": [
+    "1+",
+    "1-",
+    "2",
+    "3",
+    "4+",
+    "4-"
+  ],
+  "regimes": {
+    "1+": {
+      "closure": {
+        "identity": "backscatter magnitude sum - forward magnitude sum = signed Pi sum",
+        "reconstructed_signed_sum": -38472900.15795053,
+        "relative_to_absolute_transfer": 1.90155569727523e-15,
+        "residual_sum": 7.450580596923828e-08
+      },
+      "count": 410422149,
+      "directions": {
+        "backscatter": {
+          "count": 25961130,
+          "fraction": 0.06325470022330593,
+          "intensity": 0.0008632582192085439,
+          "magnitude_sum": 354300.2934694837,
+          "mean": 0.013647337133225083
+        },
+        "forward": {
+          "count": 384461012,
+          "fraction": 0.9367452827210844,
+          "intensity": 0.0946030825724759,
+          "magnitude_sum": 38827200.45142001,
+          "mean": 0.10099125591288827
+        }
+      },
+      "signed_pi_mean": -0.09373982435326755,
+      "signed_pi_sum": -38472900.1579506,
+      "volume_fraction": 0.38223541248589754,
+      "zero_count": 7,
+      "zero_fraction": 1.7055609735136396e-08
+    },
+    "1-": {
+      "closure": {
+        "identity": "backscatter magnitude sum - forward magnitude sum = signed Pi sum",
+        "reconstructed_signed_sum": -10315903.95638969,
+        "relative_to_absolute_transfer": 5.261619117583323e-16,
+        "residual_sum": 5.587935447692871e-09
+      },
+      "count": 110209502,
+      "directions": {
+        "backscatter": {
+          "count": 6843804,
+          "fraction": 0.06209813015941221,
+          "intensity": 0.0013804544370408735,
+          "magnitude_sum": 152139.19603996503,
+          "mean": 0.022230209404004705
+        },
+        "forward": {
+          "count": 103365697,
+          "fraction": 0.93790186076696,
+          "intensity": 0.09498312724822634,
+          "magnitude_sum": 10468043.152429655,
+          "mean": 0.10127192537026723
+        }
+      },
+      "signed_pi_mean": -0.09360267281118552,
+      "signed_pi_sum": -10315903.956389695,
+      "volume_fraction": 0.10264059714972973,
+      "zero_count": 1,
+      "zero_fraction": 9.073627789371556e-09
+    },
+    "2": {
+      "closure": {
+        "identity": "backscatter magnitude sum - forward magnitude sum = signed Pi sum",
+        "reconstructed_signed_sum": -8187623.057956626,
+        "relative_to_absolute_transfer": 9.910690649638803e-16,
+        "residual_sum": 8.381903171539307e-09
+      },
+      "count": 100681382,
+      "directions": {
+        "backscatter": {
+          "count": 8191835,
+          "fraction": 0.08136395068553985,
+          "intensity": 0.0013399345517420228,
+          "magnitude_sum": 134906.46245893737,
+          "mean": 0.0164684057306986
+        },
+        "forward": {
+          "count": 92489547,
+          "fraction": 0.9186360493144602,
+          "intensity": 0.08266205086870543,
+          "magnitude_sum": 8322529.520415563,
+          "mean": 0.08998346073006026
+        }
+      },
+      "signed_pi_mean": -0.08132211631696348,
+      "signed_pi_sum": -8187623.057956634,
+      "volume_fraction": 0.0937668439000845,
+      "zero_count": 0,
+      "zero_fraction": 0.0
+    },
+    "3": {
+      "closure": {
+        "identity": "backscatter magnitude sum - forward magnitude sum = signed Pi sum",
+        "reconstructed_signed_sum": -3957832.1975305174,
+        "relative_to_absolute_transfer": 4.563558248343123e-16,
+        "residual_sum": 1.862645149230957e-09
+      },
+      "count": 42546641,
+      "directions": {
+        "backscatter": {
+          "count": 3340434,
+          "fraction": 0.07851228490634549,
+          "intensity": 0.0014540633308154723,
+          "magnitude_sum": 61865.510527470135,
+          "mean": 0.018520201425165153
+        },
+        "forward": {
+          "count": 39206207,
+          "fraction": 0.9214877150936546,
+          "intensity": 0.09447743966575381,
+          "magnitude_sum": 4019697.7080579875,
+          "mean": 0.10252707455373042
+        }
+      },
+      "signed_pi_mean": -0.09302337633493839,
+      "signed_pi_sum": -3957832.197530519,
+      "volume_fraction": 0.03962464723736048,
+      "zero_count": 0,
+      "zero_fraction": 0.0
+    },
+    "4+": {
+      "closure": {
+        "identity": "backscatter magnitude sum - forward magnitude sum = signed Pi sum",
+        "reconstructed_signed_sum": -14546311.607561717,
+        "relative_to_absolute_transfer": 1.3407400925796875e-15,
+        "residual_sum": 2.0489096641540527e-08
+      },
+      "count": 227604749,
+      "directions": {
+        "backscatter": {
+          "count": 24811749,
+          "fraction": 0.10901243980634165,
+          "intensity": 0.001616000309587499,
+          "magnitude_sum": 367809.34484758496,
+          "mean": 0.014823999100087018
+        },
+        "forward": {
+          "count": 202792997,
+          "fraction": 0.890987547012914,
+          "intensity": 0.06552640495391993,
+          "magnitude_sum": 14914120.952409301,
+          "mean": 0.07354356991138752
+        }
+      },
+      "signed_pi_mean": -0.06391040464433252,
+      "signed_pi_sum": -14546311.607561737,
+      "volume_fraction": 0.21197344083338976,
+      "zero_count": 3,
+      "zero_fraction": 1.318074430863479e-08
+    },
+    "4-": {
+      "closure": {
+        "identity": "backscatter magnitude sum - forward magnitude sum = signed Pi sum",
+        "reconstructed_signed_sum": -13251430.590296408,
+        "relative_to_absolute_transfer": 3.995549334773806e-16,
+        "residual_sum": -5.587935447692871e-09
+      },
+      "count": 182277401,
+      "directions": {
+        "backscatter": {
+          "count": 20665581,
+          "fraction": 0.11337434529253575,
+          "intensity": 0.0020133299793102,
+          "magnitude_sum": 366984.55598404707,
+          "mean": 0.01775825010601188
+        },
+        "forward": {
+          "count": 161611817,
+          "fraction": 0.8866256382490334,
+          "intensity": 0.07471258132696579,
+          "magnitude_sum": 13618415.146280454,
+          "mean": 0.08426620898817352
+        }
+      },
+      "signed_pi_mean": -0.07269925134765556,
+      "signed_pi_sum": -13251430.590296403,
+      "volume_fraction": 0.169759058393538,
+      "zero_count": 3,
+      "zero_fraction": 1.645843085067907e-08
+    }
+  },
+  "report_version": 1,
+  "result_id": "t000001_sigma_40",
+  "result_manifest_hash": "bf9f737c2775cf8998dc21e238590ff8d80b6e5747551b517ce844451f1006b0",
+  "result_path": "C:\\Xingqun_Gao\\persistent\\results\\t000001_sigma_40",
+  "scope": "full_domain",
+  "sharp_edge_width_fraction": null,
+  "sigma_grid": 40.0,
+  "sign_convention": {
+    "backscatter": "pi > 0",
+    "forward": "pi < 0; displayed magnitude is -pi",
+    "stored_pi": "pi = tau:S",
+    "zero": "pi == 0"
+  },
+  "status": "complete",
+  "time_index": 1
+}

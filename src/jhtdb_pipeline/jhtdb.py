@@ -25,18 +25,17 @@ from .planning import Tile, requests_for, tiles_for, tiles_in_request
 from .store import VelocityStore, array_sha256
 
 
-class SciServerJHTDB:
-    """Strictly serial wrapper around the native SciServer ``giverny`` package."""
+class LocalJHTDB:
+    """Strictly serial wrapper around the official local Giverny client."""
 
     def __init__(self, cfg: PipelineConfig, token: str, time_index: int):
         try:
-            from giverny.turbulence_dataset import turb_dataset
-            from giverny.turbulence_toolkit import getCutout
+            from givernylocal.turbulence_dataset import turb_dataset
+            from givernylocal.turbulence_toolkit import getCutout, getData
         except ImportError as exc:
             raise RuntimeError(
-                "SciServer Giverny runtime cannot be imported. "
-                "isotropic1024coarse requires the functional legacy pyJHTDB runtime "
-                "provided by SciServer Essentials 4.0. "
+                "The local Giverny runtime cannot be imported; install this project "
+                "with givernylocal>=3.6.2. "
                 f"Underlying import error: {exc}"
             ) from exc
         output = cfg.run_path(time_index) / "giverny"
@@ -45,8 +44,12 @@ class SciServerJHTDB:
         self.token = token
         self.cube = turb_dataset(cfg.dataset, str(output), token)
         self._get_cutout = getCutout
+        self._get_data = getData
+        self._max_data_points = int(self.cube.metadata["constants"]["max_data_points"])
 
     def fetch_tile(self, tile: Tile, time_index: int) -> np.ndarray:
+        if self.cfg.variable == "pressure_gradient":
+            return self.fetch_pressure_gradient(tile, time_index)
         xyzt_ranges = np.asarray(
             [*tile.api_ranges, (time_index, time_index)], dtype=np.int32
         )
@@ -67,6 +70,26 @@ class SciServerJHTDB:
             close = getattr(result, "close", None)
             if callable(close):
                 close()
+
+
+    def fetch_pressure_gradient(self, tile: Tile, time_index: int) -> np.ndarray:
+        """Query server derivatives at the exact velocity grid locations."""
+        count = tile.nx * tile.ny * tile.nz
+        if count > self._max_data_points:
+            raise ValueError(f"pressure request has {count} points; server limit is {self._max_data_points}")
+        spacing = self.cfg.domain_length / np.asarray(self.cfg.grid_shape)
+        z, y, x = np.unravel_index(np.arange(count), (tile.nz, tile.ny, tile.nx))
+        points = np.column_stack((x + tile.x0, y + tile.y0, z + tile.z0)) * spacing
+        result = self._get_data(
+            self.cube, "pressure", self.cfg.physical_time(time_index),
+            "none", "fd4noint", "gradient", points, verbose=False,
+        )
+        if len(result) != 1:
+            raise RuntimeError("expected exactly one pressure-gradient time frame")
+        values = np.asarray(result[0], dtype="<f4")
+        if values.shape != (count, 3) or not np.isfinite(values).all():
+            raise RuntimeError("invalid pressure-gradient response shape or non-finite values")
+        return canonicalize_cutout(values.reshape(tile.nz, tile.ny, tile.nx, 3), tile)
 
 
 def canonicalize_cutout(values: np.ndarray, tile: Tile) -> np.ndarray:
@@ -103,10 +126,12 @@ def chunk_from_request(values: np.ndarray, request: Tile, tile: Tile) -> np.ndar
 
 
 def scratch_space(cfg: PipelineConfig, time_index: int) -> dict[str, float]:
-    path = cfg.run_root
+    pressure = cfg.variable == "pressure_gradient"
+    path = cfg.raw_store_path(time_index).parent if pressure else cfg.run_root
     path.mkdir(parents=True, exist_ok=True)
     usage = shutil.disk_usage(path)
-    required = cfg.bytes_per_snapshot + int(cfg.scratch_safety_reserve_gib * 1024**3)
+    reserve = cfg.persistent_safety_reserve_gib if pressure else cfg.scratch_safety_reserve_gib
+    required = cfg.bytes_per_snapshot + int(reserve * 1024**3)
     if usage.free < required:
         raise RuntimeError(
             f"insufficient scratch space: {usage.free / 1024**3:.2f} GiB free, "
@@ -120,12 +145,15 @@ def scratch_space(cfg: PipelineConfig, time_index: int) -> dict[str, float]:
 
 def smoke(cfg: PipelineConfig, time_index: int) -> dict[str, object]:
     token = get_token(cfg)
-    values = SciServerJHTDB(cfg, token, time_index).fetch_tile(
-        Tile(0, 0, 0, 8, 8, 8), time_index
-    )
+    cfg.lock_path.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(cfg.lock_path / "jhtdb-request.lock"), timeout=0):
+        values = LocalJHTDB(cfg, token, time_index).fetch_tile(
+            Tile(0, 0, 0, 8, 8, 8), time_index
+        )
     return {
         "status": "ok",
         "dataset": cfg.dataset,
+        "variable": cfg.variable,
         "time_index": time_index,
         "physical_time": cfg.physical_time(time_index),
         "shape": list(values.shape),
@@ -153,11 +181,20 @@ def fetch_snapshot(cfg: PipelineConfig, time_index: int) -> Path:
     cfg.lock_path.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(cfg.lock_path / "jhtdb-request.lock"), timeout=0)
     with lock:
-        client = SciServerJHTDB(cfg, token, time_index)
+        client = LocalJHTDB(cfg, token, time_index)
         tiles = tiles_for(cfg)
         requests = requests_for(cfg)
+        # Index once instead of scanning 262144 checksum tiles per request.
+        pressure_tiles = {}
+        if cfg.variable == "pressure_gradient":
+            rx, ry, rz = cfg.request_shape
+            for tile in tiles:
+                origin = (tile.x0 // rx * rx, tile.y0 // ry * ry, tile.z0 // rz * rz)
+                pressure_tiles.setdefault(origin, []).append(tile)
+            console.print(f"Pressure gradient: {len(requests)} request blocks, shape_xyz={cfg.request_shape}")
         store = VelocityStore(cfg, time_index)
         store.ensure_array()
+        store.root.attrs["status"] = "fetching"
         with Catalog(cfg.catalog_path) as catalog:
             catalog.plan_snapshot(
                 cfg.dataset, time_index, cfg.physical_time(time_index), tiles
@@ -176,7 +213,10 @@ def fetch_snapshot(cfg: PipelineConfig, time_index: int) -> Path:
                     f"frame {time_index}", total=len(requests), state="starting"
                 )
                 for request_number, request in enumerate(requests, start=1):
-                    request_tiles = tiles_in_request(request, tiles)
+                    if cfg.variable == "pressure_gradient":
+                        request_tiles = pressure_tiles[(request.x0, request.y0, request.z0)]
+                    else:
+                        request_tiles = [request] if cfg.request_shape == cfg.tile_shape else tiles_in_request(request, tiles)
                     pending: list[Tile] = []
                     for tile in request_tiles:
                         row = catalog.tile(cfg.dataset, time_index, tile.key)
@@ -236,7 +276,7 @@ def fetch_snapshot(cfg: PipelineConfig, time_index: int) -> Path:
                             del values
                     if last_error is not None:
                         catalog.set_snapshot_status(cfg.dataset, time_index, "partial")
-                        raise last_error
+                        raise RuntimeError(str(last_error).replace(token, "<redacted>")) from None
                     progress.update(
                         task,
                         advance=1,

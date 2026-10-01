@@ -1,0 +1,30 @@
+{
+  "absolute_normalized_tail_range": [
+    0.0,
+    109.51180153957851
+  ],
+  "all_tail_histograms_cover_every_point": true,
+  "analysis_version": 1,
+  "chunk_limit": null,
+  "filter_type": "smooth_sharp",
+  "normalized_central_range": [
+    -4.1,
+    4.1
+  ],
+  "raw_central_range": [
+    -1.2816847288608528,
+    1.2816847288608528
+  ],
+  "scope": "full_domain",
+  "sharp_edge_width_fraction": 0.1171875,
+  "sigmas": [
+    5.0,
+    10.0,
+    15.0,
+    30.0,
+    55.0
+  ],
+  "sign_convention": "Pi_LES = -stored pi = -tau:S; positive is forward cascade",
+  "status": "complete",
+  "time_index": 1
+}

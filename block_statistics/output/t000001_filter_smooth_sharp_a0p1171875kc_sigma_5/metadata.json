@@ -1,0 +1,53 @@
+{
+  "report_version": 3,
+  "status": "complete",
+  "result_id": "t000001_filter_smooth_sharp_a0p1171875kc_sigma_5",
+  "result_path": "C:\\Xingqun_Gao\\persistent\\results\\t000001_filter_smooth_sharp_a0p1171875kc_sigma_5",
+  "result_manifest_hash": "b06f48f65cd98237065feab04a4fc1facb280237853a59fe525c8f016c440131",
+  "time_index": 1,
+  "physical_time": 0.0,
+  "filter_type": "smooth_sharp",
+  "sigma_grid": 5.0,
+  "sharp_edge_width_fraction": 0.1171875,
+  "scope": "full_domain",
+  "sampling": "none; every grid point belongs to exactly one block",
+  "array_axis_order": [
+    "z",
+    "y",
+    "x"
+  ],
+  "csv_block_axis_order": [
+    "x",
+    "y",
+    "z"
+  ],
+  "blocks_per_axis": 16,
+  "block_count": 4096,
+  "block_shape_zyx": [
+    64,
+    64,
+    64
+  ],
+  "points_per_block": 262144,
+  "domain_length": 6.283185307179586,
+  "definitions": {
+    "gradient_ij": "d_j velocity_i (unfiltered/raw velocity)",
+    "strain_ij": "0.5 * (gradient_ij + gradient_ji)",
+    "sij_sij": "sum over i,j of strain_ij * strain_ij",
+    "primary_statistic": "arithmetic mean over all points in each block"
+  },
+  "strain_velocity_source": "validated full-domain raw velocity cache",
+  "strain_cache": {
+    "path": "C:\\Xingqun_Gao\\persistent\\state\\inputs\\t000001\\strain_cache.zarr",
+    "version": 1,
+    "input_manifest_hash": "aeb7921d0ac1b25a6e455c927bccc432eef3569f7f3a37c3441d800bab0559a4"
+  },
+  "global_means_from_blocks": {
+    "sij_sij": 249.21773186653272,
+    "work_resolved": 2.022848541358667e-07,
+    "work_full": 0.04569720951781393,
+    "pi": -0.04569700650507883
+  },
+  "csv_path": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\block_statistics\\output\\t000001_filter_smooth_sharp_a0p1171875kc_sigma_5\\block_statistics_16x16x16.csv",
+  "csv_sha256": "fdc6c6daf600a43620fd1df45ab4e778151d76c600c05512f57ad8d7920f6880"
+}

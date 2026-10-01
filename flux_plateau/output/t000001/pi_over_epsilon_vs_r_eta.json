@@ -1,0 +1,19 @@
+{
+  "analysis_version": 2,
+  "csv": "pi_over_epsilon_vs_r_eta.csv",
+  "definition": "-mean(stored pi) / epsilon_reference",
+  "epsilon_definition": "nu * mean(sum_ij (d_j u_i)^2)",
+  "epsilon_instantaneous_diagnostic": 0.09221056079186069,
+  "epsilon_reference": 0.0928,
+  "equivalent_scale_definition": "k_1/2 * r_eq = sqrt(24 ln 2)",
+  "eta_instantaneous_diagnostic": 0.002878615307466091,
+  "eta_reference": 0.00287,
+  "html": "pi_over_epsilon_vs_r_eta_linear.html",
+  "log_k_html": "pi_over_epsilon_vs_log_k.html",
+  "point_count": 24,
+  "raw_gradient_component_rms": 7.441889423614793,
+  "stored_pi_definition": "tau_ij * d_j(velocity_bar_i)",
+  "time_index": 1,
+  "viscosity": 0.000185,
+  "x_definition": "Gaussian-equivalent r_eq / eta_reference"
+}

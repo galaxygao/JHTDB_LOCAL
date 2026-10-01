@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jhtdb-pipeline"
-version = "0.7.1"
-description = "SciServer-only JHTDB full-periodic center pipeline"
+version = "0.8.0"
+description = "Local JHTDB full-periodic multi-sigma pipeline"
 requires-python = ">=3.9"
 dependencies = [
   "filelock>=3.13,<4",
-  "giverny<4",
+  "givernylocal>=3.6.2,<4",
+  "matplotlib>=3.6,<4",
   "numcodecs>=0.12,<0.16",
   "numpy>=1.23,<3",
   "plotly>=5,<7",
@@ -19,6 +20,9 @@ dependencies = [
   "streamlit>=1.40,<2",
   "zarr>=2.18,<3",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
 
 [project.scripts]
 jhtdb-pipeline = "jhtdb_pipeline.cli:main"

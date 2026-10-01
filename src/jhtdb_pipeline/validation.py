@@ -64,6 +64,10 @@ def _seam_statistics(array: Any) -> dict[str, dict[str, float]]:
 
 def validate_snapshot(cfg: PipelineConfig, time_index: int) -> dict[str, Any]:
     store = VelocityStore(cfg, time_index)
+    if cfg.variable == "pressure_gradient":
+        store.root.attrs["status"] = "validating"
+        with Catalog(cfg.catalog_path) as catalog:
+            catalog.set_snapshot_status(cfg.dataset, time_index, "validating")
     array = store.array
     gx, gy, gz = cfg.grid_shape
     expected_shape = (3, gz, gy, gx)
@@ -139,7 +143,7 @@ def validate_snapshot(cfg: PipelineConfig, time_index: int) -> dict[str, Any]:
             "physical_time": cfg.physical_time(time_index),
             "grid_shape_xyz": list(cfg.grid_shape),
             "axis_order": ["component", "z", "y", "x"],
-            "components": ["ux", "uy", "uz"],
+            "components": getattr(cfg, "components", ["ux", "uy", "uz"]),
             "dtype": "float32",
             "domain": "[0,2pi)^3",
             "periodic": [True, True, True],
@@ -147,6 +151,7 @@ def validate_snapshot(cfg: PipelineConfig, time_index: int) -> dict[str, Any]:
             "tiles": tile_manifest,
             "qa": qa,
         }
+        manifest.update(getattr(cfg, "acquisition_metadata", {}))
         manifest_hash = atomic_json(
             cfg.manifest_path / f"input_t{time_index:06d}.json", manifest
         )

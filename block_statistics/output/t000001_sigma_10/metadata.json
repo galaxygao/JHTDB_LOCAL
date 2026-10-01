@@ -1,0 +1,53 @@
+{
+  "array_axis_order": [
+    "z",
+    "y",
+    "x"
+  ],
+  "block_count": 4096,
+  "block_shape_zyx": [
+    64,
+    64,
+    64
+  ],
+  "blocks_per_axis": 16,
+  "csv_block_axis_order": [
+    "x",
+    "y",
+    "z"
+  ],
+  "csv_path": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\block_statistics\\output\\t000001_sigma_10\\block_statistics_16x16x16.csv",
+  "csv_sha256": "a83d25ba2c16f5cd5e0b8204b52590f69aae0cc4e5f11d8dcb2273fdb275967b",
+  "definitions": {
+    "gradient_bar_ij": "d_j velocity_bar_i",
+    "primary_statistic": "arithmetic mean over all points in each block",
+    "sij_sij": "sum over i,j of strain_bar_ij * strain_bar_ij",
+    "strain_bar_ij": "0.5 * (gradient_bar_ij + gradient_bar_ji)"
+  },
+  "domain_length": 6.283185307179586,
+  "filter_type": "gaussian",
+  "global_means_from_blocks": {
+    "pi": -0.08825751439225597,
+    "sij_sij": 9.828426401827798,
+    "work_full": 0.08825771653725528,
+    "work_resolved": 2.0028128558998576e-07
+  },
+  "physical_time": 0.0,
+  "points_per_block": 262144,
+  "reconstruction_validation": {
+    "atol": 2e-06,
+    "maximum_abs_difference": 0.0,
+    "rtol": 2e-05,
+    "scope": "stored 512^3 center velocity_bar crop"
+  },
+  "report_version": 1,
+  "result_id": "t000001_sigma_10",
+  "result_manifest_hash": "e785ee40deb2aab6862142d4ffa74f97dbc6fc49422d17d321aacc76200d6474",
+  "result_path": "C:\\Xingqun_Gao\\persistent\\results\\t000001_sigma_10",
+  "sampling": "none; every grid point belongs to exactly one block",
+  "scope": "full_domain",
+  "sharp_edge_width_fraction": null,
+  "sigma_grid": 10.0,
+  "status": "complete",
+  "time_index": 1
+}

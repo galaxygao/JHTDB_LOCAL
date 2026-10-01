@@ -3,9 +3,8 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import os
-import platform
 import shutil
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,24 +18,15 @@ def _utcnow() -> datetime:
 
 
 def ensure_run_record(cfg: PipelineConfig, time_index: int) -> dict[str, Any]:
+    """Create a durable local run record; local caches do not expire."""
     path = cfg.run_path(time_index) / "run.json"
     if path.exists():
-        record = json.loads(path.read_text(encoding="utf-8"))
-        expires = datetime.fromisoformat(record["expires_at"])
-        if expires <= _utcnow():
-            raise RuntimeError(
-                f"scratch run t{time_index:06d} has expired; remove that exact "
-                "scratch run directory and rebuild it from JHTDB"
-            )
-        return record
-    created = _utcnow()
+        return json.loads(path.read_text(encoding="utf-8"))
     payload = {
         "time_index": time_index,
-        "created_at": created.isoformat(),
-        "expires_at": (
-            created + timedelta(hours=cfg.scratch_retention_hours)
-        ).isoformat(),
-        "retention_hours": cfg.scratch_retention_hours,
+        "created_at": _utcnow().isoformat(),
+        "storage": "local",
+        "expires_at": None,
     }
     atomic_json(path, payload)
     return payload
@@ -61,9 +51,13 @@ def _writable(path: Path) -> bool:
             handle.flush()
             os.fsync(handle.fileno())
         return probe.read_text(encoding="utf-8") == "ok\n"
+    except OSError:
+        return False
     finally:
-        if probe.exists():
-            probe.unlink()
+        try:
+            probe.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _version(distribution: str) -> str | None:
@@ -73,39 +67,28 @@ def _version(distribution: str) -> str | None:
         return None
 
 
-def _giverny_runtime_check() -> tuple[bool, str | None]:
+def _givernylocal_runtime_check() -> tuple[bool, str | None]:
     try:
-        __import__("pyJHTDB")
-        from giverny.turbulence_dataset import turb_dataset  # noqa: F401
-        from giverny.turbulence_toolkit import getCutout  # noqa: F401
+        from givernylocal.turbulence_dataset import turb_dataset  # noqa: F401
+        from givernylocal.turbulence_toolkit import getCutout  # noqa: F401
     except (ImportError, OSError) as exc:
         return False, str(exc)
     return True, None
 
 
 def doctor(cfg: PipelineConfig, time_index: int | None = None) -> dict[str, Any]:
-    storage_text = str(cfg.state_root).replace("\\", "/")
-    temporary_text = str(cfg.run_root).replace("\\", "/")
-    is_linux = platform.system() == "Linux"
-    storage_path_ok = "/home/idies/workspace/Storage/" in storage_text
-    temporary_path_ok = "/home/idies/workspace/Temporary/" in temporary_text
     packages = {
         name: _version(name)
-        for name in (
-            "giverny", "pyJHTDB", "numpy", "scipy", "zarr", "streamlit"
-        )
+        for name in ("givernylocal", "numpy", "scipy", "zarr", "streamlit")
     }
-    giverny_runtime_ok, giverny_runtime_error = _giverny_runtime_check()
+    runtime_ok, runtime_error = _givernylocal_runtime_check()
     checks = {
-        "linux": is_linux,
-        "storage_path": storage_path_ok,
-        "temporary_path": temporary_path_ok,
-        "persistent_writable": bool(is_linux and storage_path_ok and _writable(cfg.state_root)),
-        "scratch_writable": bool(is_linux and temporary_path_ok and _writable(cfg.run_root)),
-        "result_writable": bool(is_linux and storage_path_ok and _writable(cfg.result_root)),
+        "state_writable": _writable(cfg.state_root),
+        "run_writable": _writable(cfg.run_root),
+        "result_writable": _writable(cfg.result_root),
         "token_configured": token_source(cfg) is not None,
-        "giverny_available": packages["giverny"] is not None,
-        "giverny_runtime": giverny_runtime_ok,
+        "givernylocal_available": packages["givernylocal"] is not None,
+        "givernylocal_runtime": runtime_ok,
     }
     payload: dict[str, Any] = {
         "checks": checks,
@@ -114,35 +97,27 @@ def doctor(cfg: PipelineConfig, time_index: int | None = None) -> dict[str, Any]
             "run_root": str(cfg.run_root),
             "result_root": str(cfg.result_root),
         },
-        "persistent": {
-            **(_space(cfg.result_root) if is_linux and storage_path_ok else {}),
-            "observed_account_capacity_GB": cfg.persistent_capacity_gb_observed,
-            "safety_reserve_GiB": cfg.persistent_safety_reserve_gib,
-            "quota_note": "account quota is confirmed in the SciServer Quotas UI; filesystem free space is checked here",
-        },
-        "scratch": {
-            **(_space(cfg.run_root) if is_linux and temporary_path_ok else {}),
-            "retention_hours": cfg.scratch_retention_hours,
-            "safety_reserve_GiB": cfg.scratch_safety_reserve_gib,
+        "volumes": {
+            "state": _space(cfg.state_root),
+            "run": {
+                **_space(cfg.run_root),
+                "safety_reserve_GiB": cfg.scratch_safety_reserve_gib,
+            },
+            "result": {
+                **_space(cfg.result_root),
+                "safety_reserve_GiB": cfg.persistent_safety_reserve_gib,
+            },
         },
         "token_source": token_source(cfg),
         "packages": packages,
-        "giverny_runtime_error": giverny_runtime_error,
+        "givernylocal_runtime_error": runtime_error,
     }
     if time_index is not None:
         record_path = cfg.run_path(time_index) / "run.json"
-        if record_path.exists():
-            record = json.loads(record_path.read_text(encoding="utf-8"))
-            expires = datetime.fromisoformat(record["expires_at"])
-            remaining_hours = max(
-                0.0, (expires - _utcnow()).total_seconds() / 3600.0
-            )
-            checks["run_not_expired"] = remaining_hours > 0.0
-            payload["run"] = {
-                **record,
-                "remaining_hours": remaining_hours,
-            }
-        else:
-            payload["run"] = {"time_index": time_index, "status": "not_created"}
+        payload["run"] = (
+            json.loads(record_path.read_text(encoding="utf-8"))
+            if record_path.exists()
+            else {"time_index": time_index, "status": "not_created"}
+        )
     payload["status"] = "ok" if all(checks.values()) else "failed"
     return payload

@@ -26,14 +26,16 @@ class CqTests(unittest.TestCase):
         )
         root = zarr.group()
         pi = np.asarray([1, 2, -3, 4, 5, -6, 7, -8], dtype="<f4").reshape(2, 2, 2)
-        work_full = np.asarray([1, 1, 1, 1, -1, -1, -1, -1], dtype="<f4").reshape(2, 2, 2)
-        work_resolved = np.asarray([1, 1, -1, -1, 1, 1, -1, -1], dtype="<f4").reshape(2, 2, 2)
+        work_full = np.asarray([2, 1, 1, 1, -1, -1, -1, -2], dtype="<f4").reshape(2, 2, 2)
+        work_resolved = np.asarray([1, 2, -1, -1, 1, 1, -2, -1], dtype="<f4").reshape(2, 2, 2)
+        s_bar = work_full - work_resolved + pi
         root.create_dataset("pi", data=pi, chunks=(1, 2, 2), dtype="<f4")
+        root.create_dataset("s_bar", data=s_bar, chunks=(1, 2, 2), dtype="<f4")
         root.create_dataset("work_full", data=work_full, chunks=(1, 2, 2), dtype="<f4")
         root.create_dataset("work_resolved", data=work_resolved, chunks=(1, 2, 2), dtype="<f4")
         return cfg, root, pi, work_full, work_resolved
 
-    def test_four_quadrant_contributions_close_to_mean_pi(self) -> None:
+    def test_six_regime_contributions_close_to_mean_pi(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cfg, root, pi, _, _ = self._fixture(Path(temporary))
             report = compute_cq(root, cfg)
@@ -43,9 +45,35 @@ class CqTests(unittest.TestCase):
                 sum(item["stored_cq"] for item in report["regimes"].values()),
                 float(np.mean(pi, dtype=np.float64)),
             )
-            self.assertEqual(set(report["regimes"]), {"Q1", "Q2", "Q3", "Q4"})
-            self.assertTrue(all(item["count"] == 2 for item in report["regimes"].values()))
-            self.assertAlmostEqual(report["regimes"]["Q1"]["stored_pi_sum"], 3.0)
+            self.assertEqual(
+                set(report["regimes"]), {"1+", "1-", "2", "3", "4+", "4-"}
+            )
+            expected_fields = {
+                "pi": pi,
+                "s_bar": root["s_bar"][:],
+                "work_full": root["work_full"][:],
+                "work_resolved": root["work_resolved"][:],
+                "delta_w": root["work_full"][:] - root["work_resolved"][:],
+            }
+            for field_name, values in expected_fields.items():
+                self.assertAlmostEqual(
+                    sum(
+                        item["fields"][field_name]["mean_contribution"]
+                        for item in report["regimes"].values()
+                    ),
+                    float(np.mean(values, dtype=np.float64)),
+                )
+                self.assertTrue(report["partition_check"]["fields"][field_name]["passed"])
+            self.assertEqual(
+                [report["regimes"][name]["count"] for name in ("1+", "1-", "2", "3", "4+", "4-")],
+                [1, 1, 2, 2, 1, 1],
+            )
+            self.assertAlmostEqual(
+                report["legacy_regimes"]["Q1"]["stored_pi_sum"], 3.0
+            )
+            self.assertTrue(
+                all(item["count"] == 2 for item in report["legacy_regimes"].values())
+            )
             self.assertEqual(report["partition_check"]["sum_quadrant_counts"], 8)
             self.assertTrue(report["partition_check"]["coverage_passed"])
             self.assertTrue(report["partition_check"]["flux_passed"])
@@ -68,6 +96,10 @@ class CqTests(unittest.TestCase):
             )
             for item in report["regimes"].values():
                 self.assertEqual(item["les_forward_cq"], -item["stored_cq"])
+                self.assertEqual(
+                    set(item["fields"]),
+                    {"pi", "s_bar", "work_full", "work_resolved", "delta_w"},
+                )
             self.assertLessEqual(
                 report["partition_check"]["relative_to_sum_abs_pi"],
                 cfg.cq_partition_relative_max,
@@ -81,7 +113,7 @@ class CqTests(unittest.TestCase):
             root["work_resolved"][:] = 1.0
             report = compute_cq(root, cfg)
             self.assertIsNone(
-                report["regimes"]["Q4"]["stored_conditional_mean_pi"]
+                report["legacy_regimes"]["Q4"]["stored_conditional_mean_pi"]
             )
             report_hash = write_cq_artifacts(path, report)
             self.assertTrue(report_hash)

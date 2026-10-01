@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -14,7 +15,11 @@ import zarr
 from jhtdb_pipeline.catalog import Catalog
 from jhtdb_pipeline.config import load_config, result_zarr_name
 from jhtdb_pipeline.cq import ensure_cq_result
+from jhtdb_pipeline.migration import migrate_existing_result
+from jhtdb_pipeline.physics import axis2_spectrum as physics_axis2_spectrum
+from jhtdb_pipeline.physics import full_spectrum as physics_full_spectrum
 from jhtdb_pipeline.physics import spectral_derivative, spectral_gaussian
+from jhtdb_pipeline.physics import legacy_regime_codes
 from jhtdb_pipeline.planning import Tile
 from jhtdb_pipeline.sbar_qa import ensure_sbar_result, run_sbar_qa
 from jhtdb_pipeline.processing import (
@@ -22,6 +27,7 @@ from jhtdb_pipeline.processing import (
     backfill_full_regime,
     filter_field as processing_filter_field,
     finalize_result,
+    process_batch,
     process_center,
     resource_plan,
 )
@@ -31,7 +37,7 @@ from jhtdb_pipeline.validation import atomic_json
 
 def fixture(root: Path, *, compressible: bool = False):
     cfg = replace(
-        load_config("configs/pipeline.yaml"),
+        load_config("configs/pipeline.yaml").with_filter("gaussian"),
         grid_shape=(16, 16, 16),
         request_shape=(16, 16, 16),
         tile_shape=(8, 8, 8),
@@ -45,6 +51,9 @@ def fixture(root: Path, *, compressible: bool = False):
         fft_workers=2,
         fft_slab_width=2,
         cleanup_scratch_on_success=True,
+        sigma_grid=2.0,
+        sigma_grids=(2.0,),
+        sharp_edge_width_fraction=0.1171875,
     )
     coordinates = np.arange(16, dtype=np.float32) * (2.0 * np.pi / 16)
     z, y, x = np.meshgrid(coordinates, coordinates, coordinates, indexing="ij")
@@ -68,6 +77,188 @@ def fixture(root: Path, *, compressible: bool = False):
 
 
 class ProcessingTests(unittest.TestCase):
+    def test_smooth_sharp_batch_reuses_full_spectra_and_tracks_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cfg, _ = fixture(Path(temporary))
+            cfg = replace(
+                cfg,
+                filter_type="smooth_sharp",
+                sharp_edge_width_fraction=0.125,
+                sigma_grid=2.0,
+                sigma_grids=(2.0, 3.0),
+            )
+            with patch(
+                "jhtdb_pipeline.processing.full_spectrum",
+                wraps=physics_full_spectrum,
+            ) as cached_fft:
+                paths = process_batch(cfg, 1, cfg.sigma_grids)
+            self.assertEqual(cached_fft.call_count, 12)
+            self.assertTrue(all((path / "COMPLETE").is_file() for path in paths))
+            batch = json.loads(
+                cfg.batch_manifest_path(1).read_text(encoding="utf-8")
+            )
+            self.assertEqual(batch["status"], "complete")
+            self.assertEqual(batch["filter_type"], "smooth_sharp")
+            self.assertTrue(all(item["complete"] for item in batch["results"]))
+
+    def test_batch_manifest_accumulates_completed_separate_invocations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cfg, _ = fixture(Path(temporary))
+            cfg = replace(
+                cfg,
+                filter_type="smooth_sharp",
+                sharp_edge_width_fraction=0.125,
+                sigma_grid=2.0,
+                sigma_grids=(2.0,),
+            )
+            process_batch(cfg, 1, (2.0,))
+            process_batch(cfg, 1, (3.0,))
+            batch = json.loads(
+                cfg.batch_manifest_path(1).read_text(encoding="utf-8")
+            )
+            self.assertEqual(batch["sigma_grids"], [2.0, 3.0])
+            self.assertTrue(all(item["complete"] for item in batch["results"]))
+
+    def test_smooth_sharp_result_is_full_domain_and_namespaced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cfg, _ = fixture(Path(temporary))
+            cfg = replace(
+                cfg,
+                filter_type="smooth_sharp",
+                sharp_edge_width_fraction=0.125,
+                sigma_grid=2.0,
+                sigma_grids=(2.0,),
+            )
+            process_center(cfg, 1, 2.0)
+            final = finalize_result(cfg, 1, 2.0)
+            self.assertEqual(
+                final.name, "t000001_filter_smooth_sharp_a0p125kc_sigma_2"
+            )
+            result = open_complete_result(final)
+            self.assertEqual(result.attrs["filter_type"], "smooth_sharp")
+            self.assertEqual(tuple(result["pi"].shape), cfg.full_shape_zyx)
+            manifest = json.loads((final / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["filter_type"], "smooth_sharp")
+            self.assertEqual(manifest["sharp_edge_width_fraction"], 0.125)
+
+    def test_relative_smooth_sharp_width_is_scale_invariant_and_namespaced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cfg, _ = fixture(Path(temporary))
+            cfg = replace(
+                cfg,
+                filter_type="smooth_sharp",
+                sharp_edge_width_fraction=0.125,
+                sigma_grid=2.0,
+                sigma_grids=(2.0, 4.0),
+            )
+            self.assertIn("a0p125kc", cfg.result_id(1, 2.0))
+
+            process_center(cfg, 1, 2.0)
+            final = finalize_result(cfg, 1, 2.0)
+            result = open_complete_result(final)
+            self.assertEqual(result.attrs["sharp_edge_width_fraction"], 0.125)
+
+    def test_multi_sigma_batch_reuses_raw_gradients_and_first_axis_fft(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            batch_cfg, _ = fixture(root / "batch")
+            sigmas = (1.0, 2.0)
+            with patch(
+                "jhtdb_pipeline.processing.axis2_spectrum",
+                wraps=physics_axis2_spectrum,
+            ) as cached_fft:
+                paths = process_batch(batch_cfg, 1, sigmas)
+            self.assertEqual(cached_fft.call_count, 12)
+            self.assertTrue(all((path / "COMPLETE").is_file() for path in paths))
+            for sigma, path in zip(sigmas, paths):
+                qa = json.loads((path / "qa.json").read_text(encoding="utf-8"))
+                self.assertTrue(qa["reuse"]["raw_gradients"])
+                self.assertTrue(qa["reuse"]["first_axis_fft_spectra"])
+                self.assertEqual(open_complete_result(path)["regime"].dtype, np.dtype("u1"))
+
+            normal_cfg, _ = fixture(root / "normal")
+            process_center(normal_cfg, 1, 1.0)
+            normal_path = finalize_result(normal_cfg, 1, 1.0)
+            batch_result = open_complete_result(paths[0])
+            normal_result = open_complete_result(normal_path)
+            for name in (
+                "velocity_bar", "gradient_bar", "work_full", "work_resolved",
+                "pi", "s_bar", "regime",
+            ):
+                np.testing.assert_array_equal(batch_result[name][:], normal_result[name][:])
+
+    def test_schema_v5_result_migrates_without_recomputing_physics(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cfg, _ = fixture(Path(temporary))
+            process_center(cfg, 1)
+            final = finalize_result(cfg, 1)
+            logical = open_complete_result(final)
+            raw_center = np.asarray(logical["velocity"][:])
+            gradient_center = np.asarray(logical["gradient"][:])
+            v6_regime = np.asarray(logical["regime"][:])
+            old_regime = legacy_regime_codes(v6_regime)
+
+            root = zarr.open_group(
+                str(final / result_zarr_name(cfg.sigma_grid)), mode="a"
+            )
+            root.create_dataset(
+                "velocity", data=raw_center, chunks=(1, 4, 4, 4), dtype="<f4"
+            )
+            root.create_dataset(
+                "gradient",
+                data=gradient_center,
+                chunks=(1, 1, 4, 4, 4),
+                dtype="<f4",
+            )
+            root["regime"][:] = old_regime
+            root.attrs["result_schema_version"] = 5
+            manifest_path = final / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema_version"] = 5
+            atomic_json(manifest_path, manifest)
+            (final / "shared_refs.json").unlink()
+            shutil.rmtree(cfg.shared_result_path(1))
+            legacy_cache = cfg.legacy_raw_store_path(1)
+            legacy_cache.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(cfg.persistent_raw_store_path(1), legacy_cache)
+
+            with patch(
+                "jhtdb_pipeline.processing.filter_field",
+                side_effect=AssertionError("migration must not filter fields"),
+            ), patch(
+                "jhtdb_pipeline.processing.derivative_field",
+                side_effect=AssertionError("migration must not compute derivatives"),
+            ):
+                report = migrate_existing_result(cfg, 1)
+
+            self.assertEqual(report["status"], "migrated_v5_to_v6")
+            self.assertTrue(cfg.persistent_raw_store_path(1).is_dir())
+            self.assertTrue((cfg.shared_result_path(1) / "COMPLETE").is_file())
+            migrated_root = zarr.open_group(
+                str(final / result_zarr_name(cfg.sigma_grid)), mode="r"
+            )
+            self.assertEqual(migrated_root.attrs["result_schema_version"], 6)
+            migrated_codes = np.asarray(migrated_root["regime"][:])
+            np.testing.assert_array_equal(
+                legacy_regime_codes(migrated_codes), old_regime
+            )
+            migrated = open_complete_result(final)
+            np.testing.assert_array_equal(migrated["velocity"][:], raw_center)
+            np.testing.assert_array_equal(migrated["gradient"][:], gradient_center)
+
+            reclaimed = migrate_existing_result(
+                cfg, 1, reclaim_redundant=True
+            )
+            self.assertEqual(reclaimed["status"], "already_v6")
+            compact = zarr.open_group(
+                str(final / result_zarr_name(cfg.sigma_grid)), mode="r"
+            )
+            self.assertNotIn("velocity", compact)
+            self.assertNotIn("gradient", compact)
+            np.testing.assert_array_equal(
+                open_complete_result(final)["velocity"][:], raw_center
+            )
+
     def test_center_pipeline_and_persistent_finalization(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cfg, velocity = fixture(Path(temporary))
@@ -77,13 +268,13 @@ class ProcessingTests(unittest.TestCase):
                 sigma_grids=(1.0, 2.0, 3.0),
             )
             plan = resource_plan(batch_cfg)
-            expected_result_bytes = 8**3 * 96 + 16**3 * 17
+            expected_result_bytes = 8**3 * 48 + 16**3 * 17
             self.assertEqual(
-                plan["persistent_result_GiB"], expected_result_bytes / 1024**3
+                plan["result_GiB"], expected_result_bytes / 1024**3
             )
             self.assertEqual(plan["configured_sigma_count"], 3)
             self.assertEqual(
-                plan["persistent_batch_GiB"],
+                plan["batch_result_GiB"],
                 3 * expected_result_bytes / 1024**3,
             )
             staging = process_center(cfg, 1)
@@ -167,7 +358,7 @@ class ProcessingTests(unittest.TestCase):
             self.assertFalse(cfg.workspace_path(1).exists())
             self.assertFalse(any(final.rglob("*.part-*")))
             manifest = json.loads((final / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["schema_version"], 5)
+            self.assertEqual(manifest["schema_version"], 6)
             self.assertEqual(manifest["field_scopes"]["regime"], "full_domain")
             self.assertEqual(manifest["s_bar_qa_report_version"], 3)
             self.assertIn("s_bar_qa_report_hash", manifest)
@@ -182,7 +373,7 @@ class ProcessingTests(unittest.TestCase):
                 result.attrs["manifest_hash"],
             )
             self.assertEqual(set(manifest["fields"]), {
-                "velocity", "gradient", "velocity_bar", "gradient_bar",
+                "velocity_bar", "gradient_bar",
                 "work_full", "work_resolved", "pi", "s_bar", "regime",
             })
             relaxed_cfg = replace(
@@ -257,7 +448,6 @@ class ProcessingTests(unittest.TestCase):
                 "weak_asymmetry.html",
             ):
                 (final / name).unlink()
-            shutil.rmtree(cfg.raw_store_path(1))
             self.assertEqual(process_center(cfg, 1), final)
             refreshed_s_bar = json.loads(
                 (final / "s_bar_qa.json").read_text(encoding="utf-8")
@@ -316,7 +506,7 @@ class ProcessingTests(unittest.TestCase):
             process_center(cfg, 1)
             final = finalize_result(cfg, 1)
             zarr_path = final / result_zarr_name(cfg.sigma_grid)
-            current = zarr.open_group(str(zarr_path), mode="r")
+            current = open_complete_result(final)
             crop = cfg.crop_slices_zyx
             old_fields = {}
             for name in (
@@ -355,7 +545,7 @@ class ProcessingTests(unittest.TestCase):
 
             self.assertEqual(upgraded, final)
             result = open_complete_result(final)
-            self.assertEqual(result.attrs["result_schema_version"], 5)
+            self.assertEqual(result.attrs["result_schema_version"], 6)
             self.assertEqual(result["work_full"].shape, cfg.full_shape_zyx)
             self.assertEqual(result["regime"].shape, cfg.full_shape_zyx)
             qa = json.loads((final / "qa.json").read_text(encoding="utf-8"))
@@ -409,8 +599,8 @@ class ProcessingTests(unittest.TestCase):
             upgraded = backfill_full_regime(cfg, 1)
 
             self.assertEqual(upgraded, final)
-            current = open_complete_result(final)
-            self.assertEqual(current.attrs["result_schema_version"], 5)
+            current = zarr.open_group(str(zarr_path), mode="r")
+            self.assertEqual(current.attrs["result_schema_version"], 6)
             self.assertEqual(current["regime"].shape, cfg.full_shape_zyx)
             np.testing.assert_array_equal(current["regime"][:], expected)
             qa = json.loads((final / "qa.json").read_text(encoding="utf-8"))

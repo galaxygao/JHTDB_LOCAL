@@ -1,0 +1,11 @@
+{
+  "frame": 1,
+  "gradient_source": "supplied_combined_gradient",
+  "shape_zyx": [
+    64,
+    128,
+    128
+  ],
+  "conditional_points_above_upper": 1049,
+  "conditional_upper": 2.579704999923706
+}

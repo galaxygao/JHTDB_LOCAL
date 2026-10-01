@@ -4,6 +4,11 @@ __pycache__/
 .pytest_cache/
 .coverage
 .venv/
+.venv-mac/
+.env
+.env.*
+.secrets/
+outputs/**/*.npy
 
 # SciServer runtime products (persistent paths under the project directory).
 state/
@@ -15,3 +20,6 @@ results/
 *.sqlite-shm
 *.sqlite-wal
 *.partial
+
+# Reproducible local visualization products.
+pi_slices/output/

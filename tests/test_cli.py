@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import call, patch
 
-from jhtdb_pipeline.cli import _run_single_frame, _selected_sigmas, build_parser
+from jhtdb_pipeline.cli import _run_single_frame, _selected_sigmas, build_parser, main
 
 
 class CliBatchTests(unittest.TestCase):
@@ -39,31 +39,96 @@ class CliBatchTests(unittest.TestCase):
             self.assertEqual(args.time_index, 7)
             self.assertEqual(args.sigma_grid, 2.0)
 
-    @patch("jhtdb_pipeline.cli.finalize_result")
-    @patch("jhtdb_pipeline.cli.process_center")
+    def test_processing_commands_accept_smooth_sharp_filter(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "process-batch",
+                "--time-index",
+                "1",
+                "--sigma-grid",
+                "10",
+                "--filter-type",
+                "smooth_sharp",
+            ]
+        )
+        self.assertEqual(args.filter_type, "smooth_sharp")
+
+    def test_process_batch_accepts_multiple_sigma_values(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "process-batch",
+                "--time-index",
+                "1",
+                "--sigma-grids",
+                "5",
+                "10",
+                "20",
+                "--filter-type",
+                "smooth_sharp",
+            ]
+        )
+        self.assertEqual(args.sigma_grids, [5.0, 10.0, 20.0])
+
+    def test_smooth_sharp_accepts_scale_invariant_edge_width(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "process-batch",
+                "--time-index",
+                "1",
+                "--sigma-grids",
+                "10",
+                "30",
+                "75",
+                "--filter-type",
+                "smooth_sharp",
+                "--sharp-edge-width-fraction",
+                "0.1171875",
+            ]
+        )
+        self.assertEqual(args.sharp_edge_width_fraction, 0.1171875)
+
+    @patch("jhtdb_pipeline.cli.subprocess.run")
+    @patch("jhtdb_pipeline.cli.load_config")
+    def test_gui_uses_local_browser_address_without_telemetry(
+        self, load_config, run
+    ) -> None:
+        load_config.return_value = self.cfg
+        run.return_value.returncode = 0
+
+        result = main(["gui", "--port", "8502", "--config", "test.yaml"])
+
+        self.assertEqual(result, 0)
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--server.address") + 1], "127.0.0.1")
+        self.assertEqual(command[command.index("--server.port") + 1], "8502")
+        self.assertEqual(
+            command[command.index("--browser.gatherUsageStats") + 1], "false"
+        )
+
+    @patch("jhtdb_pipeline.cli.process_batch")
     @patch("jhtdb_pipeline.cli.validate_snapshot")
     @patch("jhtdb_pipeline.cli.fetch_snapshot")
     @patch("jhtdb_pipeline.cli.doctor")
     @patch("jhtdb_pipeline.cli.reuse_or_backfill_result")
     def test_single_frame_fetches_once_and_processes_each_sigma(
-        self, reuse, doctor, fetch, validate, process, finalize
+        self, reuse, doctor, fetch, validate, process_batch
     ) -> None:
         reuse.return_value = None
         doctor.return_value = {"status": "ok"}
-        finalize.side_effect = lambda cfg, frame, sigma: Path(
-            f"result_sigma_{sigma:g}"
-        )
+        process_batch.return_value = [
+            Path("result_sigma_1"),
+            Path("result_sigma_2"),
+            Path("result_sigma_3"),
+        ]
 
         results = _run_single_frame(self.cfg, 1, None)
 
         doctor.assert_called_once_with(self.cfg, 1)
         fetch.assert_called_once_with(self.cfg, 1)
         validate.assert_called_once_with(self.cfg, 1)
-        self.assertEqual(
-            process.call_args_list,
-            [call(self.cfg, 1, 1.0), call(self.cfg, 1, 2.0), call(self.cfg, 1, 3.0)],
+        process_batch.assert_called_once_with(
+            self.cfg, 1, (1.0, 2.0, 3.0)
         )
-        self.assertEqual(finalize.call_args_list, process.call_args_list)
         self.assertEqual(
             results,
             [Path("result_sigma_1"), Path("result_sigma_2"), Path("result_sigma_3")],

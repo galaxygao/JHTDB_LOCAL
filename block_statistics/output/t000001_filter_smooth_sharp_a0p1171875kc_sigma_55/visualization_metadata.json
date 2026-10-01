@@ -1,0 +1,20 @@
+{
+  "plot_version": 1,
+  "status": "complete",
+  "source_csv": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\block_statistics\\output\\t000001_filter_smooth_sharp_a0p1171875kc_sigma_55\\block_statistics_16x16x16.csv",
+  "sorted_csv": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\block_statistics\\output\\t000001_filter_smooth_sharp_a0p1171875kc_sigma_55\\block_statistics_sorted_by_sij_sij.csv",
+  "html": "D:\\Xingqun_Gao\\JHTDB_LOCAL\\block_statistics\\output\\t000001_filter_smooth_sharp_a0p1171875kc_sigma_55\\quantities_vs_sij_sij.html",
+  "block_count": 4096,
+  "sampling": "none; every CSV block is plotted",
+  "sort": {
+    "field": "sij_sij_mean",
+    "direction": "ascending"
+  },
+  "x_axis": "sij_sij_mean",
+  "y_axes": [
+    "work_resolved_mean",
+    "work_full_mean",
+    "pi_mean"
+  ],
+  "point_representation": "one marker per 64^3 block; values are block means"
+}

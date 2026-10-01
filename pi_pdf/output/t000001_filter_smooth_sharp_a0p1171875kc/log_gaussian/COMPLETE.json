@@ -1,0 +1,253 @@
+{
+  "analysis_version": 1,
+  "branches": {
+    "10": {
+      "backscatter": {
+        "cdf_max_abs_error_core": 0.00959470340885571,
+        "cdf_rmse_core": 0.005833685459223276,
+        "contribution_area": 0.04641839499196671,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.03994658847264402,
+        "expected_gaussian_second_derivative": -4.1172184183109195,
+        "log_density_quadratic_r2_core": 0.9919643884754593,
+        "log_density_second_derivative": -3.952749588502663,
+        "mu_log10_abs_pi_over_rms": -0.0846376547047986,
+        "pdf_r2_core": 0.9936301164469863,
+        "point_count": 1073741824,
+        "qq_r2": 0.9952375659919469,
+        "sigma_log10_abs_pi_over_rms": 0.4928310324356732,
+        "weighted_excess_kurtosis": 0.19051859102479884,
+        "weighted_skewness": -0.2541350786112554
+      },
+      "forward": {
+        "cdf_max_abs_error_core": 0.011099988056001875,
+        "cdf_rmse_core": 0.006651205727108173,
+        "contribution_area": 0.11939908677911883,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.04989758986509853,
+        "expected_gaussian_second_derivative": -4.375051096332051,
+        "log_density_quadratic_r2_core": 0.9893851793522911,
+        "log_density_second_derivative": -4.1567465910884245,
+        "mu_log10_abs_pi_over_rms": 0.07835352684523536,
+        "pdf_r2_core": 0.9914678997683847,
+        "point_count": 1073741824,
+        "qq_r2": 0.9934597584118677,
+        "sigma_log10_abs_pi_over_rms": 0.4780886519045938,
+        "weighted_excess_kurtosis": 0.20634234626716497,
+        "weighted_skewness": -0.2885287285719688
+      },
+      "point_count": 1073741824,
+      "sign_counts": {
+        "backscatter": 397248799,
+        "forward": 676493014
+      },
+      "zero_count": 11
+    },
+    "15": {
+      "backscatter": {
+        "cdf_max_abs_error_core": 0.01099409994328282,
+        "cdf_rmse_core": 0.0066065943472513955,
+        "contribution_area": 0.03849242838042554,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.05065342407939129,
+        "expected_gaussian_second_derivative": -4.387468137591834,
+        "log_density_quadratic_r2_core": 0.989713445661904,
+        "log_density_second_derivative": -4.165227853383578,
+        "mu_log10_abs_pi_over_rms": -0.10850903146910217,
+        "pdf_r2_core": 0.9916779904009092,
+        "point_count": 1073741824,
+        "qq_r2": 0.9938561080129036,
+        "sigma_log10_abs_pi_over_rms": 0.47741164953198173,
+        "weighted_excess_kurtosis": 0.21212086743661995,
+        "weighted_skewness": -0.2915973760161202
+      },
+      "forward": {
+        "cdf_max_abs_error_core": 0.012838950813542471,
+        "cdf_rmse_core": 0.0075490386397748035,
+        "contribution_area": 0.1201781922171461,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.04892795775934407,
+        "expected_gaussian_second_derivative": -4.75724520074528,
+        "log_density_quadratic_r2_core": 0.9862636106737684,
+        "log_density_second_derivative": -4.524482908512373,
+        "mu_log10_abs_pi_over_rms": 0.07817534377675311,
+        "pdf_r2_core": 0.9887957779350041,
+        "point_count": 1073741824,
+        "qq_r2": 0.9924592284894526,
+        "sigma_log10_abs_pi_over_rms": 0.45848193848217256,
+        "weighted_excess_kurtosis": 0.2466438352957958,
+        "weighted_skewness": -0.3185494021080664
+      },
+      "point_count": 1073741824,
+      "sign_counts": {
+        "backscatter": 366306351,
+        "forward": 707435460
+      },
+      "zero_count": 13
+    },
+    "30": {
+      "backscatter": {
+        "cdf_max_abs_error_core": 0.018229318964291252,
+        "cdf_rmse_core": 0.011514399161212645,
+        "contribution_area": 0.028836086506901618,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.10486254845268261,
+        "expected_gaussian_second_derivative": -5.038394661325357,
+        "log_density_quadratic_r2_core": 0.9816574639436865,
+        "log_density_second_derivative": -4.51005575702839,
+        "mu_log10_abs_pi_over_rms": -0.13668886911147293,
+        "pdf_r2_core": 0.9725822494422292,
+        "point_count": 1073741824,
+        "qq_r2": 0.9870952252205145,
+        "sigma_log10_abs_pi_over_rms": 0.4455063600870873,
+        "weighted_excess_kurtosis": 0.302409177939722,
+        "weighted_skewness": -0.4365713531982261
+      },
+      "forward": {
+        "cdf_max_abs_error_core": 0.016882525781246938,
+        "cdf_rmse_core": 0.009759194034265426,
+        "contribution_area": 0.11725734935299661,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.07156823654943148,
+        "expected_gaussian_second_derivative": -5.5617191197937785,
+        "log_density_quadratic_r2_core": 0.977726794898139,
+        "log_density_second_derivative": -5.163676690206882,
+        "mu_log10_abs_pi_over_rms": 0.07636245810198339,
+        "pdf_r2_core": 0.9812912795880567,
+        "point_count": 1073741824,
+        "qq_r2": 0.986948723754214,
+        "sigma_log10_abs_pi_over_rms": 0.4240289162640402,
+        "weighted_excess_kurtosis": 0.3216022189540606,
+        "weighted_skewness": -0.40439486614467574
+      },
+      "point_count": 1073741824,
+      "sign_counts": {
+        "backscatter": 322739670,
+        "forward": 751002143
+      },
+      "zero_count": 11
+    },
+    "5": {
+      "backscatter": {
+        "cdf_max_abs_error_core": 0.007789784765020902,
+        "cdf_rmse_core": 0.004811759326759298,
+        "contribution_area": 0.04742346402749123,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.023194632080744914,
+        "expected_gaussian_second_derivative": -3.3216444149192474,
+        "log_density_quadratic_r2_core": 0.9943250894461269,
+        "log_density_second_derivative": -3.2446000948121343,
+        "mu_log10_abs_pi_over_rms": -0.0476702276366618,
+        "pdf_r2_core": 0.9957421740868202,
+        "point_count": 1073741824,
+        "qq_r2": 0.9968626273479418,
+        "sigma_log10_abs_pi_over_rms": 0.5486854332593479,
+        "weighted_excess_kurtosis": 0.10458099048266067,
+        "weighted_skewness": -0.20362493907837623
+      },
+      "forward": {
+        "cdf_max_abs_error_core": 0.009485604065849085,
+        "cdf_rmse_core": 0.005835524287570767,
+        "contribution_area": 0.09312047053257021,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.03301433576756012,
+        "expected_gaussian_second_derivative": -3.47086413873454,
+        "log_density_quadratic_r2_core": 0.9918298605797167,
+        "log_density_second_derivative": -3.3562758646547746,
+        "mu_log10_abs_pi_over_rms": 0.07887998649843851,
+        "pdf_r2_core": 0.9932856017769566,
+        "point_count": 1073741824,
+        "qq_r2": 0.9963370393343572,
+        "sigma_log10_abs_pi_over_rms": 0.5367612960642859,
+        "weighted_excess_kurtosis": 0.14512110559451674,
+        "weighted_skewness": -0.2370778543066843
+      },
+      "point_count": 1073741824,
+      "sign_counts": {
+        "backscatter": 442065890,
+        "forward": 631675930
+      },
+      "zero_count": 4
+    },
+    "55": {
+      "backscatter": {
+        "cdf_max_abs_error_core": 0.01920510986542101,
+        "cdf_rmse_core": 0.011513479186074777,
+        "contribution_area": 0.025214790042339945,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.11265756575431089,
+        "expected_gaussian_second_derivative": -5.8174379445074,
+        "log_density_quadratic_r2_core": 0.9774032302514487,
+        "log_density_second_derivative": -5.162059546752435,
+        "mu_log10_abs_pi_over_rms": -0.16385887012701741,
+        "pdf_r2_core": 0.9741593074155785,
+        "point_count": 1073741824,
+        "qq_r2": 0.9837470983098651,
+        "sigma_log10_abs_pi_over_rms": 0.4146046039225163,
+        "weighted_excess_kurtosis": 0.4189241734229765,
+        "weighted_skewness": -0.46831922326864467
+      },
+      "forward": {
+        "cdf_max_abs_error_core": 0.02428200575554984,
+        "cdf_rmse_core": 0.013953562822770613,
+        "contribution_area": 0.11713878281483753,
+        "core_probability_range": [
+          0.005,
+          0.995
+        ],
+        "curvature_relative_error": 0.15538071621393695,
+        "expected_gaussian_second_derivative": -6.868351345732003,
+        "log_density_quadratic_r2_core": 0.9708583318356808,
+        "log_density_second_derivative": -5.801141994423206,
+        "mu_log10_abs_pi_over_rms": 0.07692005273103193,
+        "pdf_r2_core": 0.9627042283630334,
+        "point_count": 1073741824,
+        "qq_r2": 0.9786032078575769,
+        "sigma_log10_abs_pi_over_rms": 0.38156958390839035,
+        "weighted_excess_kurtosis": 0.5462572255971487,
+        "weighted_skewness": -0.5515577368300216
+      },
+      "point_count": 1073741824,
+      "sign_counts": {
+        "backscatter": 309479754,
+        "forward": 764262055
+      },
+      "zero_count": 15
+    }
+  },
+  "chunk_limit": null,
+  "filter_type": "smooth_sharp",
+  "log_base": 10,
+  "normality_target": "contribution-weighted log10(|Pi_LES|/RMS(Pi_LES)) separately for forward and backscatter",
+  "scope": "full_domain",
+  "sharp_edge_width_fraction": 0.1171875,
+  "status": "complete",
+  "time_index": 1
+}

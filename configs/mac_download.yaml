@@ -1,0 +1,32 @@
+# Download-only configuration. scripts/download_pressure_mac.sh sets this root.
+dataset: isotropic1024coarse
+variable: velocity
+grid_shape: [1024, 1024, 1024]
+domain_length: 6.283185307179586
+stored_time_step: 0.002
+platform:
+  state_root: ${JHTDB_MAC_ROOT}/state
+  run_root: ${JHTDB_MAC_ROOT}/runs
+  result_root: ${JHTDB_MAC_ROOT}/results
+auth:
+  token_file: null
+jhtdb:
+  request_shape: [256, 256, 128]
+  tile_shape: [128, 128, 128]
+  retries: 3
+  backoff_seconds: 2.0
+  request_cooldown_seconds: 0.25
+storage:
+  compression_level: 3
+  compression_threads: 4
+  persistent_safety_reserve_gib: 24
+  scratch_safety_reserve_gib: 24
+physics:
+  sigma_grid: [10, 15, 30, 55, 75]
+  filter_type: smooth_sharp
+  sharp_edge_width_fraction: 0.1171875
+  crop_start: [256, 256, 256]
+  crop_shape: [512, 512, 512]
+  fft_workers: 4
+  fft_slab_width: 32
+  cleanup_scratch_on_success: true

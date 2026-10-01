@@ -14,7 +14,7 @@ from jhtdb_pipeline.config import load_config
 from jhtdb_pipeline.jhtdb import fetch_snapshot
 
 
-class FakeSciServerJHTDB:
+class FakeLocalJHTDB:
     def __init__(self, field: np.ndarray):
         self.field = field
         self.calls = 0
@@ -53,9 +53,9 @@ class FetchTests(unittest.TestCase):
                 request_cooldown_seconds=0.0,
             )
             field = np.arange(3 * 16**3, dtype=np.float32).reshape(3, 16, 16, 16)
-            client = FakeSciServerJHTDB(field)
+            client = FakeLocalJHTDB(field)
             with patch(
-                "jhtdb_pipeline.jhtdb.SciServerJHTDB", return_value=client
+                "jhtdb_pipeline.jhtdb.LocalJHTDB", return_value=client
             ):
                 fetch_snapshot(cfg, 1)
                 fetch_snapshot(cfg, 1)

@@ -8,18 +8,27 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 from jhtdb_pipeline.config import load_config
+from jhtdb_pipeline.cq import CQ_REPORT_VERSION, REGIME_FIELD_SPECS
+from jhtdb_pipeline.regime_pi import (
+    DEFAULT_REGIME_PI_OUTPUT_ROOT,
+    regime_pi_output_dir,
+    regime_pi_report_is_current,
+)
 from jhtdb_pipeline.store import open_complete_result
 
 
-REGIME_LABELS = ("uncertain", "Q1: +/+", "Q2: +/-", "Q3: -/+", "Q4: -/-")
+REGIME_LABELS = ("uncertain", "1+", "1-", "2", "3", "4+", "4-")
 REGIME_COLORS = [
-    [0.00, "#9e9e9e"], [0.199999, "#9e9e9e"],
-    [0.20, "#1f77b4"], [0.399999, "#1f77b4"],
-    [0.40, "#ff7f0e"], [0.599999, "#ff7f0e"],
-    [0.60, "#2ca02c"], [0.799999, "#2ca02c"],
-    [0.80, "#d62728"], [1.00, "#d62728"],
+    [0.0, "#9e9e9e"], [1 / 7, "#9e9e9e"],
+    [1 / 7, "#1f77b4"], [2 / 7, "#1f77b4"],
+    [2 / 7, "#17becf"], [3 / 7, "#17becf"],
+    [3 / 7, "#ff7f0e"], [4 / 7, "#ff7f0e"],
+    [4 / 7, "#2ca02c"], [5 / 7, "#2ca02c"],
+    [5 / 7, "#d62728"], [6 / 7, "#d62728"],
+    [6 / 7, "#9467bd"], [1.0, "#9467bd"],
 ]
 GLOBAL_TOTAL_ORDER = ("s_bar", "pi", "work_resolved", "work_full")
 GLOBAL_TOTAL_LABELS = ("ΣS̄", "ΣΠ", "ΣW_res", "ΣW_full")
@@ -27,7 +36,17 @@ SBAR_METRIC_SPECS = (
     ("identity_relative_residual_rms", "能量等式相对残差 RMS"),
     ("s_bar_vs_pi_net", "|ΣS̄| / |ΣΠ|"),
 )
-CQ_REGIME_ORDER = ("Q1", "Q2", "Q3", "Q4")
+CQ_REGIME_ORDER = ("1+", "1-", "2", "3", "4+", "4-")
+CQ_REGIME_CRITERIA = {
+    "1+": "W_full ≥ 0，W_resolved ≥ 0，ΔW ≥ 0",
+    "1-": "W_full ≥ 0，W_resolved ≥ 0，ΔW < 0",
+    "2": "W_full ≥ 0，W_resolved < 0",
+    "3": "W_full < 0，W_resolved ≥ 0",
+    "4+": "W_full < 0，W_resolved < 0，ΔW ≥ 0",
+    "4-": "W_full < 0，W_resolved < 0，ΔW < 0",
+}
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REGIME_PI_OUTPUT_ROOT = PROJECT_ROOT / DEFAULT_REGIME_PI_OUTPUT_ROOT
 
 
 def complete_result_paths(result_root: Path) -> list[Path]:
@@ -36,7 +55,12 @@ def complete_result_paths(result_root: Path) -> list[Path]:
     return sorted(
         path
         for path in result_root.iterdir()
-        if path.is_dir() and not path.name.startswith(".") and (path / "COMPLETE").is_file()
+        if (
+            path.is_dir()
+            and not path.name.startswith(".")
+            and not path.name.endswith("_shared")
+            and (path / "COMPLETE").is_file()
+        )
     )
 
 
@@ -129,39 +153,145 @@ def energy_identity_residual(
     return work_full - work_resolved + pi - s_bar
 
 
+def six_regime_slice(
+    stored: np.ndarray,
+    work_full: np.ndarray,
+    work_resolved: np.ndarray,
+    schema_version: int,
+) -> np.ndarray:
+    values = np.asarray(stored, dtype=np.uint8)
+    if schema_version >= 6:
+        return values
+    delta_nonnegative = (work_full - work_resolved) >= 0.0
+    converted = np.zeros(values.shape, dtype=np.uint8)
+    converted[(values == 1) & delta_nonnegative] = 1
+    converted[(values == 1) & ~delta_nonnegative] = 2
+    converted[values == 2] = 3
+    converted[values == 3] = 4
+    converted[(values == 4) & delta_nonnegative] = 5
+    converted[(values == 4) & ~delta_nonnegative] = 6
+    return converted
+
+
 def _cq_figure(report: dict):
     regimes = report["regimes"]
+    order = tuple(name for name in CQ_REGIME_ORDER if name in regimes)
+    if not order:
+        order = ("Q1", "Q2", "Q3", "Q4")
     figure = go.Figure()
-    figure.add_bar(
-        name="stored Cq (pi=tau:S)",
-        x=list(CQ_REGIME_ORDER),
-        y=[regimes[name]["stored_cq"] for name in CQ_REGIME_ORDER],
-    )
-    figure.add_bar(
-        name="LES-forward Cq (-tau:S)",
-        x=list(CQ_REGIME_ORDER),
-        y=[regimes[name]["les_forward_cq"] for name in CQ_REGIME_ORDER],
-    )
+    for field_name, label, color in REGIME_FIELD_SPECS:
+        values = [
+            regimes[name]["fields"][field_name]["mean_contribution"]
+            for name in order
+        ]
+        customdata = [
+            [
+                regimes[name]["volume_fraction"],
+                regimes[name]["fields"][field_name]["conditional_mean"],
+            ]
+            for name in order
+        ]
+        figure.add_bar(
+            name=label,
+            x=list(order),
+            y=values,
+            marker_color=color,
+            customdata=customdata,
+            hovertemplate=(
+                "regime=%{x}<br>全域归一均值=%{y:.8e}<br>"
+                "体积分数=%{customdata[0]:.6f}<br>"
+                "regime 内条件均值=%{customdata[1]:.8e}<extra></extra>"
+            ),
+        )
     return figure.update_layout(
-        title="Full-domain C_q decomposition",
+        title="各 regime 的五个物理量全域归一均值",
         barmode="group",
-        yaxis_title="contribution to domain mean",
+        xaxis={
+            "title": "regime",
+            "type": "category",
+            "categoryorder": "array",
+            "categoryarray": list(order),
+        },
+        yaxis_title="mean(field · I_q) = Σ_q field / N",
+        legend_title_text="物理量",
     )
 
 
-def cq_rows(report: dict) -> list[dict[str, str]]:
+def result_selection_metadata(path: Path) -> dict | None:
+    """Read only the small manifest needed to populate result selectors."""
+    manifest_path = path / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        time_index = int(manifest["time_index"])
+        sigma_grid = float(manifest["sigma_grid"])
+        filter_type = str(manifest.get("filter_type", "gaussian"))
+        physical_time = manifest.get("physical_time")
+        if physical_time is not None:
+            physical_time = float(physical_time)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+    if filter_type == "smooth_sharp":
+        fraction = manifest.get("sharp_edge_width_fraction")
+        if fraction is None:
+            return None
+        smoothing_key = ("fraction_of_cutoff", float(fraction))
+        smoothing_label = f"α = {float(fraction):g} (w/kc)"
+    else:
+        smoothing_key = ("not_applicable", None)
+        smoothing_label = "不适用"
+
+    return {
+        "path": path,
+        "time_index": time_index,
+        "physical_time": physical_time,
+        "filter_type": filter_type,
+        "sigma_grid": sigma_grid,
+        "smoothing_key": smoothing_key,
+        "smoothing_label": smoothing_label,
+    }
+
+
+def result_selection_catalog(paths: list[Path]) -> list[dict]:
+    return [
+        metadata
+        for path in paths
+        if (metadata := result_selection_metadata(path)) is not None
+    ]
+
+
+def _time_selection_label(time_index: int, catalog: list[dict]) -> str:
+    physical_times = {
+        item["physical_time"]
+        for item in catalog
+        if item["time_index"] == time_index and item["physical_time"] is not None
+    }
+    if len(physical_times) == 1:
+        return f"frame {time_index} (t={next(iter(physical_times)):g})"
+    return f"frame {time_index}"
+
+
+def cq_rows(report: dict, field_name: str = "pi") -> list[dict[str, str]]:
     rows = []
-    for name in CQ_REGIME_ORDER:
+    labels = {key: label for key, label, _ in REGIME_FIELD_SPECS}
+    if field_name not in labels:
+        raise ValueError(f"unknown regime field {field_name!r}")
+    label = labels[field_name]
+    order = tuple(name for name in CQ_REGIME_ORDER if name in report["regimes"])
+    if not order:
+        order = ("Q1", "Q2", "Q3", "Q4")
+    for name in order:
         item = report["regimes"][name]
+        field = item["fields"][field_name]
         rows.append(
             {
                 "regime": name,
+                "格点数": f"{int(item['count']):,}",
                 "体积分数": _scientific_text(item["volume_fraction"]),
-                "stored Cq": _scientific_text(item["stored_cq"]),
-                "LES-forward Cq": _scientific_text(item["les_forward_cq"]),
-                "stored 条件均值": _scientific_text(
-                    item["stored_conditional_mean_pi"]
-                ),
+                f"{label}（Σ_q/N）": _scientific_text(field["mean_contribution"]),
+                f"{label}（Σ_q/N_q）": _scientific_text(field["conditional_mean"]),
             }
         )
     return rows
@@ -241,8 +371,14 @@ def _continuous_figure(
         raise ValueError("scale_mode must be 'linear' or 'symlog'")
     if not signed and scale_mode != "linear":
         raise ValueError("symlog color scaling requires signed=True")
-    stride = max(1, values.shape[0] // 512)
-    shown = values[::stride, ::stride]
+    row_stride = max(1, int(np.ceil(values.shape[0] / 512)))
+    column_stride = max(1, int(np.ceil(values.shape[1] / 512)))
+    shown = values[::row_stride, ::column_stride]
+    # Keep the browser payload at most 512^2 while retaining source-array
+    # coordinates. Plotly stretches each sampled value over its original-grid
+    # footprint instead of relabelling a 1024^2 slice as 0..511.
+    x_coordinates = np.arange(shown.shape[1], dtype=np.int64) * column_stride
+    y_coordinates = np.arange(shown.shape[0], dtype=np.int64) * row_stride
     displayed = shown
     kwargs = {}
     if signed:
@@ -263,6 +399,8 @@ def _continuous_figure(
         kwargs = {"zmin": -displayed_limit, "zmax": displayed_limit}
     figure = px.imshow(
         displayed,
+        x=x_coordinates,
+        y=y_coordinates,
         origin="lower",
         color_continuous_scale="RdBu_r" if signed else "Viridis",
         aspect="equal",
@@ -282,6 +420,15 @@ def _continuous_figure(
                 "title": "value (SymLog)",
             }
         )
+    figure.update_xaxes(
+        title=f"source-array index (display stride={column_stride})",
+        range=[0, values.shape[1] - 1],
+    )
+    figure.update_yaxes(
+        title=f"source-array index (display stride={row_stride})",
+        range=[0, values.shape[0] - 1],
+        autorange=False,
+    )
     figure.update_layout(title=title)
     return figure
 
@@ -293,8 +440,8 @@ def _regime_figure(values: np.ndarray, title: str):
             z=shown,
             colorscale=REGIME_COLORS,
             zmin=-0.5,
-            zmax=4.5,
-            colorbar={"tickvals": [0, 1, 2, 3, 4], "ticktext": list(REGIME_LABELS)},
+            zmax=6.5,
+            colorbar={"tickvals": list(range(7)), "ticktext": list(REGIME_LABELS)},
             hovertemplate="x=%{x}<br>y=%{y}<br>regime code=%{z}<extra></extra>",
         )
     )
@@ -303,19 +450,168 @@ def _regime_figure(values: np.ndarray, title: str):
     return figure
 
 
+def regime_pi_rows(report: dict) -> list[dict[str, str]]:
+    rows = []
+    labels = {"backscatter": "backscatter (Pi > 0)", "forward": "forward (Pi < 0)"}
+    for regime in report.get("regime_order", CQ_REGIME_ORDER):
+        item = report["regimes"][regime]
+        for direction in ("backscatter", "forward"):
+            values = item["directions"][direction]
+            rows.append(
+                {
+                    "regime": regime,
+                    "方向": labels[direction],
+                    "格点数": f"{int(values['count']):,}",
+                    "mean |Pi|": _scientific_text(values["mean"]),
+                    "fraction (N_q,d/N_q)": _scientific_text(values["fraction"]),
+                    "intensity (sum|Pi|/N_q)": _scientific_text(values["intensity"]),
+                }
+            )
+    return rows
+
+
+def _regime_pi_figure(report: dict):
+    regimes = list(report.get("regime_order", CQ_REGIME_ORDER))
+    figure = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=("条件平均幅值", "regime 内格点占比", "regime 体积平均强度"),
+        horizontal_spacing=0.075,
+    )
+    specifications = (
+        ("mean", "mean |Pi|"),
+        ("fraction", "N_q,d / N_q"),
+        ("intensity", "sum |Pi| / N_q"),
+    )
+    for column, (metric, y_label) in enumerate(specifications, start=1):
+        for direction, label, color in (
+            ("backscatter", "backscatter (Pi > 0)", "#d62728"),
+            ("forward", "forward magnitude (-Pi)", "#1f77b4"),
+        ):
+            values = [
+                report["regimes"][regime]["directions"][direction][metric]
+                for regime in regimes
+            ]
+            counts = [
+                report["regimes"][regime]["directions"][direction]["count"]
+                for regime in regimes
+            ]
+            figure.add_bar(
+                x=regimes,
+                y=values,
+                name=label,
+                legendgroup=direction,
+                showlegend=column == 1,
+                marker_color=color,
+                customdata=np.asarray(counts, dtype=np.int64),
+                hovertemplate=(
+                    "regime=%{x}<br>" + y_label + "=%{y:.8e}<br>"
+                    "count=%{customdata:,}<extra>" + label + "</extra>"
+                ),
+                row=1,
+                col=column,
+            )
+        figure.update_xaxes(
+            title_text="regime",
+            type="category",
+            categoryorder="array",
+            categoryarray=regimes,
+            row=1,
+            col=column,
+        )
+        figure.update_yaxes(title_text=y_label, row=1, col=column)
+    return figure.update_layout(
+        title="每个 regime 内 Pi 的 backscatter / forward 统计",
+        barmode="group",
+        height=520,
+        legend_title_text="传输方向",
+    )
+
+
 def main() -> None:
-    st.set_page_config(page_title="JHTDB SciServer viewer", layout="wide")
+    st.set_page_config(page_title="JHTDB local viewer", layout="wide")
     cfg = load_config(os.environ.get("JHTDB_PIPELINE_CONFIG", "configs/pipeline.yaml"))
-    st.title("JHTDB 周期域结果（服务器只读）")
+    st.title("JHTDB 周期域本地结果")
     paths = complete_result_paths(cfg.result_root)
     if not paths:
         st.info("persistent 中还没有带 COMPLETE 标记的正式结果。")
         return
-    selected = st.sidebar.selectbox("Result", paths, format_func=lambda path: path.name)
-    result = open_complete_result(selected)
+    catalog = result_selection_catalog(paths)
+    if not catalog:
+        st.info("没有可读取 manifest 的完整结果。")
+        return
+
+    time_options = sorted({item["time_index"] for item in catalog})
+    selected_time = st.sidebar.selectbox(
+        "时间",
+        time_options,
+        format_func=lambda value: _time_selection_label(value, catalog),
+    )
+    time_catalog = [
+        item for item in catalog if item["time_index"] == selected_time
+    ]
+    filter_options = sorted({item["filter_type"] for item in time_catalog})
+    selected_filter = st.sidebar.selectbox("Filter type", filter_options)
+    filter_catalog = [
+        item for item in time_catalog if item["filter_type"] == selected_filter
+    ]
+    sigma_options = sorted({item["sigma_grid"] for item in filter_catalog})
+    selected_sigma = st.sidebar.selectbox(
+        "Sigma",
+        sigma_options,
+        format_func=lambda value: f"{value:g}",
+    )
+    sigma_catalog = [
+        item for item in filter_catalog if item["sigma_grid"] == selected_sigma
+    ]
+    smoothing_options = sorted(
+        {item["smoothing_key"] for item in sigma_catalog},
+        key=lambda value: (value[0], -1.0 if value[1] is None else value[1]),
+    )
+    smoothing_labels = {
+        item["smoothing_key"]: item["smoothing_label"] for item in sigma_catalog
+    }
+    selected_smoothing = st.sidebar.selectbox(
+        "平滑参数",
+        smoothing_options,
+        format_func=lambda value: smoothing_labels[value],
+    )
+    candidates = [
+        item
+        for item in sigma_catalog
+        if item["smoothing_key"] == selected_smoothing
+    ]
+    if len(candidates) != 1:
+        st.error("当前选择对应多个结果，无法唯一确定加载目标。")
+        return
+    selected = candidates[0]["path"]
+    selection_signature = (
+        selected_time,
+        selected_filter,
+        selected_sigma,
+        selected_smoothing,
+    )
+    if st.session_state.get("result_selection_signature") != selection_signature:
+        st.session_state["result_selection_signature"] = selection_signature
+        st.session_state.pop("confirmed_result_path", None)
+    if st.sidebar.button("确认并加载", type="primary", use_container_width=True):
+        st.session_state["confirmed_result_path"] = str(selected.resolve())
+
+    confirmed_path = st.session_state.get("confirmed_result_path")
+    if confirmed_path != str(selected.resolve()):
+        st.info("请选择时间、filter type、sigma 和平滑参数，然后点击“确认并加载”。")
+        return
+
+    with st.spinner("正在加载结果……"):
+        result = open_complete_result(selected)
+    edge_text = ""
+    if result.attrs.get("filter_type") == "smooth_sharp":
+        edge_fraction = result.attrs.get("sharp_edge_width_fraction")
+        edge_text = f" | edge alpha={float(edge_fraction):g}"
     st.caption(
-        f"{selected} | frame={result.attrs['time_index']} | "
-        f"sigma={result.attrs['sigma_grid']}"
+        f"frame={result.attrs['time_index']} | "
+        f"filter={result.attrs.get('filter_type', 'gaussian')} | "
+        f"sigma={result.attrs['sigma_grid']}{edge_text}"
     )
     page = st.sidebar.radio(
         "页面",
@@ -324,14 +620,14 @@ def main() -> None:
             "梯度对比",
             "Work 与 regime",
             "Π 与 S̄",
-            "Cq 分解",
+            "Regime 五场统计",
             "Weak asymmetry",
             "全域 S̄ QA",
         ),
     )
     axis = st.sidebar.selectbox("切片法向", ("z", "y", "x"))
     index = None
-    if page not in ("Cq 分解", "Weak asymmetry", "全域 S̄ QA"):
+    if page not in ("Regime 五场统计", "Weak asymmetry", "全域 S̄ QA"):
         indexed_field = (
             result["work_full"]
             if page in ("Work 与 regime", "Π 与 S̄")
@@ -396,11 +692,21 @@ def main() -> None:
     elif page == "Work 与 regime":
         full = extract_scalar_slice(result["work_full"], axis, index)
         resolved = extract_scalar_slice(result["work_resolved"], axis, index)
+        delta = full - resolved
         left, right = st.columns(2)
         left.plotly_chart(_continuous_figure(full, "work_full"), use_container_width=True)
         right.plotly_chart(_continuous_figure(resolved, "work_resolved"), use_container_width=True)
-        codes = extract_scalar_slice(result["regime"], axis, index)
+        codes = six_regime_slice(
+            extract_scalar_slice(result["regime"], axis, index),
+            full,
+            resolved,
+            int(result.attrs.get("result_schema_version", 5)),
+        )
         st.plotly_chart(_regime_figure(codes, "regime（全域）"), use_container_width=True)
+        st.plotly_chart(
+            _continuous_figure(delta, "ΔW = W_full − W_resolved"),
+            use_container_width=True,
+        )
         st.json(dict(result.attrs.get("occupancy", {})))
     elif page == "Π 与 S̄":
         if "pi" not in result or "s_bar" not in result:
@@ -436,38 +742,57 @@ def main() -> None:
                 use_container_width=True,
             )
             st.json(dict(result.attrs.get("decomposition", {})))
-    elif page == "Cq 分解":
-        st.header("全域 Cq 分解")
+    elif page == "Regime 五场统计":
+        st.header("全域 Regime 五场统计")
         cq_path = selected / "cq.json"
         if cq_path.is_file():
             report = json.loads(cq_path.read_text(encoding="utf-8"))
+            if report.get("report_version") != CQ_REPORT_VERSION:
+                st.warning(
+                    "当前统计报告是旧版本；请运行 compute-cq 生成五场统计。"
+                )
+                return
             if report.get("passed"):
-                st.success("Cq 分区恒等式：通过")
+                st.success("五个物理量的 regime 分区恒等式：通过")
             else:
-                st.error("Cq 分区恒等式：失败")
+                st.error("五个物理量的 regime 分区恒等式：失败")
             global_values = report["global"]
             check = report["partition_check"]
-            left, middle, right = st.columns(3)
-            left.metric("mean(pi=tau:S)", _scientific_text(global_values["stored_pi_mean"]))
-            middle.metric(
-                "mean(Pi_LES=-tau:S)",
-                _scientific_text(global_values["les_forward_flux_mean"]),
-            )
-            right.metric(
-                "分区相对残差",
-                _scientific_text(check["relative_to_sum_abs_pi"]),
-            )
+            mean_columns = st.columns(len(REGIME_FIELD_SPECS))
+            for column, (field_name, label, _) in zip(
+                mean_columns, REGIME_FIELD_SPECS
+            ):
+                column.metric(
+                    f"全域 {label}",
+                    _scientific_text(global_values["field_means"][field_name]),
+                )
             st.caption(
-                "C1 + C2 + C3 + C4 = mean(pi)；Cq 使用零阈值符号四分区，"
-                "与可视化 regime 的 uncertain 阈值无关。LES-forward 列仅对 stored pi 取反。"
+                "每根柱为 mean(field·I_q)=Σ_q field/N，其中 N 是全域格点数；"
+                "六个 regime 的柱相加等于对应场的全域 mean。Π=τ:S，前向级串对应 Π<0。"
             )
             st.plotly_chart(_cq_figure(report), use_container_width=True)
-            st.dataframe(cq_rows(report), hide_index=True, use_container_width=True)
+            st.dataframe(
+                [
+                    {"regime": name, "Cq 全域判据": CQ_REGIME_CRITERIA[name]}
+                    for name in CQ_REGIME_ORDER
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+            st.caption("ΔW = W_full − W_resolved；精确零归入非负（+）一侧。")
+            for field_name, label, _ in REGIME_FIELD_SPECS:
+                st.subheader(label)
+                st.dataframe(
+                    cq_rows(report, field_name),
+                    hide_index=True,
+                    use_container_width=True,
+                )
             with st.expander("查看 cq.json 原始报告"):
                 st.json(report)
         else:
             st.warning(
-                "当前正式结果没有 cq.json；运行 compute-cq，或重新执行 single-frame 自动补齐。"
+                "当前正式结果没有 regime 五场统计；运行 compute-cq，"
+                "或重新执行 single-frame 自动补齐。"
             )
     elif page == "Weak asymmetry":
         st.header("全域 Π weak asymmetry")
@@ -508,6 +833,51 @@ def main() -> None:
             )
             with st.expander("查看 weak_asymmetry.json 原始报告"):
                 st.json(report)
+
+            st.divider()
+            st.subheader("各 regime 的 Π backscatter / forward")
+            regime_pi_path = (
+                regime_pi_output_dir(selected, REGIME_PI_OUTPUT_ROOT)
+                / "regime_pi_transfer.json"
+            )
+            if regime_pi_path.is_file():
+                regime_pi_report = json.loads(
+                    regime_pi_path.read_text(encoding="utf-8")
+                )
+                if regime_pi_report_is_current(
+                    regime_pi_path, result.attrs.get("manifest_hash")
+                ):
+                    if regime_pi_report.get("passed"):
+                        st.success("逐 regime 正反传输覆盖与 closure：通过")
+                    else:
+                        st.error("逐 regime 正反传输覆盖或 closure：失败")
+                    st.caption(
+                        "mean 是该方向内 mean(|Π|)；fraction=N_q,d/N_q；"
+                        "intensity=Σ_q,d|Π|/N_q=mean×fraction。"
+                        "forward 以正幅值 −Π 显示，因此每个 regime 内 "
+                        "mean(Π)=intensity_backscatter−intensity_forward。"
+                    )
+                    st.plotly_chart(
+                        _regime_pi_figure(regime_pi_report),
+                        use_container_width=True,
+                    )
+                    st.dataframe(
+                        regime_pi_rows(regime_pi_report),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                    with st.expander("查看 regime_pi_transfer.json 原始报告"):
+                        st.json(regime_pi_report)
+                else:
+                    st.warning(
+                        "逐 regime Π 统计与当前结果版本不一致，请重新运行 "
+                        "compute-regime-pi。"
+                    )
+            else:
+                st.warning(
+                    "当前结果还没有逐 regime Π 正反传输统计；运行 "
+                    "compute-regime-pi 后刷新页面。"
+                )
         else:
             st.warning(
                 "当前正式结果没有 weak_asymmetry.json；运行 "
@@ -559,7 +929,7 @@ def main() -> None:
             else:
                 st.warning("missing")
 
-    st.caption("本 GUI 只读取服务器 persistent 正式结果，不写数据、不访问本地文件。")
+    st.caption("本 GUI 只读 C 盘 persistent 正式结果，不修改计算数据。")
 
 
 if __name__ == "__main__":

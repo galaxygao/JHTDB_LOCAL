@@ -1,0 +1,129 @@
+{
+  "format_version": 2,
+  "source_result": "C:\\Xingqun_Gao\\persistent\\results\\t000001_sigma_20",
+  "time_index": 1,
+  "physical_time": 0.0,
+  "sigma_grid": 20.0,
+  "full_shape_zyx": [
+    1024,
+    1024,
+    1024
+  ],
+  "point_count": 1073741824,
+  "histogram_count_3d": 1073741824,
+  "histogram_count_2d": 1073741824,
+  "bins_per_axis_3d": 32,
+  "bins_per_axis_2d": 64,
+  "occupied_bins_3d": 6220,
+  "occupied_bins_2d": 1998,
+  "pdf": {
+    "definition_3d": "count / (N * dW_full * dS_bar * dPi_LES)",
+    "definition_2d": "count / (N * dS_bar * dPi_LES)",
+    "integral_3d": 1.0,
+    "integral_2d": 1.0,
+    "top_region_definition": "occupied bins with PDF at or above the 95th percentile",
+    "top_threshold_3d": 0.0305817687477751,
+    "top_threshold_2d": 0.2569323360161399,
+    "top_bin_count_3d": 311,
+    "top_bin_count_2d": 100,
+    "display_scale": "robust log10(PDF), nonzero bins only",
+    "display_log10_range_3d": [
+      -6.583100321796439,
+      -0.46589302367843755
+    ],
+    "display_log10_range_2d": [
+      -5.725311984456742,
+      0.3865286095099039
+    ],
+    "empty_bin_rule": "integer count == 0 before PDF normalization"
+  },
+  "axes": {
+    "x": "work_full",
+    "y": "s_bar",
+    "z": "pi_les = -stored pi = -tau:S"
+  },
+  "derived_features": {
+    "delta_w": "s_bar + pi_les = work_full - work_resolved",
+    "work_resolved": "work_full - s_bar - pi_les"
+  },
+  "bounds": {
+    "work_full": {
+      "minimum": -7.35930061340332,
+      "maximum": 7.113683700561523
+    },
+    "s_bar": {
+      "minimum": -2.5963964462280273,
+      "maximum": 3.0134150981903076
+    },
+    "pi_les": {
+      "minimum": -0.6912790536880493,
+      "maximum": 2.187272548675537
+    }
+  },
+  "axis_ranges_3d": {
+    "work_full": [
+      -7.35930061340332,
+      7.113683700561523
+    ],
+    "s_bar": [
+      -2.5963964462280273,
+      3.0134150981903076
+    ],
+    "pi_les": [
+      -0.6912790536880493,
+      2.187272548675537
+    ]
+  },
+  "display_limits_3d": {
+    "work_full": [
+      -10.0,
+      10.0
+    ],
+    "s_bar": [
+      -3.0,
+      4.0
+    ],
+    "pi_les": [
+      -1.0,
+      2.5
+    ]
+  },
+  "bin_widths_3d": {
+    "work_full": 0.45228075981140137,
+    "s_bar": 0.17530661076307297,
+    "pi_les": 0.08995473757386208
+  },
+  "axis_ranges_2d": {
+    "s_bar": [
+      -2.5963964462280273,
+      3.0134150981903076
+    ],
+    "pi_les": [
+      -0.6912790536880493,
+      2.187272548675537
+    ]
+  },
+  "display_limits_2d": {
+    "s_bar": [
+      -3.0,
+      4.0
+    ],
+    "pi_les": [
+      -1.0,
+      2.5
+    ]
+  },
+  "bin_widths_2d": {
+    "s_bar": 0.08765330538153648,
+    "pi_les": 0.04497736878693104
+  },
+  "equal_numeric_unit_scale": true,
+  "boundary_planes": {
+    "work_full_zero": "x = 0",
+    "delta_w_zero": "y + z = 0",
+    "work_resolved_zero": "x - y - z = 0"
+  },
+  "sampling": null,
+  "all_grid_points_used": true,
+  "visualization_note": "The displayed PDFs are normalized from exact integer bin counts; all source grid points contribute. Each axis uses its own exact range; Plotly keeps one numeric unit at the same visual scale. The 2-D density is accumulated independently at higher resolution. Raw features remain available through iter_exact_feature_chunks()."
+}

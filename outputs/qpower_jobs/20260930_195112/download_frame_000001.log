@@ -1,0 +1,10 @@
+JHTDB serial fetch frame=1 free_scratch=126.37 GiB
+Exactly one JHTDB request is allowed in flight.
+Pressure gradient: 1024 request blocks, shape_xyz=(128, 128, 64)
+request x0512_y0000_z0000 failed: HTTPSConnectionPool(host='web.idies.jhu.edu',
+port=443): Max retries exceeded with url: 
+/turbulence-svc/values?authToken=<redacted>&dataset=isotropic1024coarse&functio
+n=GetVariable&var=pressure&t=0.0&sint=fd4noint&sop=gradient&tint=none&timepoint
+_end=-999.9&delta_t=-999.9 (Caused by 
+NameResolutionError("HTTPSConnection(host='web.idies.jhu.edu', port=443): 
+Failed to resolve 'web.idies.jhu.edu' ([Errno 11002] getaddrinfo failed)"))

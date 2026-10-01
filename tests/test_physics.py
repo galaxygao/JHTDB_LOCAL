@@ -8,13 +8,19 @@ import numpy as np
 
 from jhtdb_pipeline.physics import (
     ARRAY_AXIS_FOR_DERIVATIVE,
+    axis2_spectrum,
     close_memmap,
     derivative_field,
     filter_field,
+    filter_field_from_axis2_spectrum,
+    filter_smooth_sharp_field,
+    full_spectrum,
     memmap,
+    legacy_regime_codes,
     regime_codes,
     spectral_derivative,
     spectral_gaussian,
+    smooth_sharp_radial_weights,
 )
 
 
@@ -34,10 +40,74 @@ class PhysicsTests(unittest.TestCase):
         )
 
     def test_regime_codes(self) -> None:
-        full = np.asarray([2.0, 2.0, -2.0, -2.0, 0.0])
-        resolved = np.asarray([2.0, -2.0, 2.0, -2.0, 1.0])
+        full = np.asarray([3.0, 2.0, 2.0, -2.0, -2.0, -3.0, 0.0])
+        resolved = np.asarray([2.0, 3.0, -2.0, 2.0, -3.0, -2.0, 1.0])
         codes, _, _ = regime_codes(full, resolved, 0.1, 0.0)
-        np.testing.assert_array_equal(codes, [1, 2, 3, 4, 0])
+        np.testing.assert_array_equal(codes, [1, 2, 3, 4, 5, 6, 0])
+        np.testing.assert_array_equal(
+            legacy_regime_codes(codes), [1, 1, 2, 3, 4, 4, 0]
+        )
+
+    def test_full_spectrum_matches_direct_three_dimensional_fft(self) -> None:
+        rng = np.random.default_rng(14)
+        field = rng.standard_normal((8, 8, 8)).astype(np.float32)
+        actual = full_spectrum(field, 2, workers=2)
+        expected = np.fft.rfftn(field).astype(np.complex64)
+        np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
+
+    def test_smooth_sharp_edge_and_full_periodic_filter(self) -> None:
+        weights = smooth_sharp_radial_weights(
+            np.asarray([0.0, 3.0, 4.0, 5.0, 20.0]), 4.0, 0.25
+        )
+        self.assertEqual(float(weights[0]), 1.0)
+        self.assertAlmostEqual(float(weights[2]), 0.5)
+        self.assertTrue(np.all(np.diff(weights) <= 0))
+
+        n = 32
+        coordinates = np.arange(n, dtype=np.float32) * (2.0 * np.pi / n)
+        z, y, x = np.meshgrid(coordinates, coordinates, coordinates, indexing="ij")
+        low = np.sin(2 * x + 3 * y)
+        high = np.sin(12 * x)
+        output = np.empty_like(low, dtype=np.float32)
+        filter_smooth_sharp_field(
+            low + high,
+            output,
+            sigma_grid=2.0,
+            domain_length=2.0 * np.pi,
+            edge_width_fraction=0.03125,
+            slab=4,
+            workers=2,
+        )
+        np.testing.assert_allclose(output, low, rtol=3e-5, atol=3e-5)
+
+    def test_smooth_sharp_has_half_gain_at_cutoff_and_is_isotropic(self) -> None:
+        n = 32
+        coordinates = np.arange(n, dtype=np.float32) * (2.0 * np.pi / n)
+        z, y, x = np.meshgrid(coordinates, coordinates, coordinates, indexing="ij")
+        # sigma=2 gives k_c=N/(2*sigma)=8 for a 2*pi domain.
+        cutoff_modes = np.cos(8 * x) + np.cos(8 * y) + np.cos(8 * z)
+        output = np.empty_like(cutoff_modes, dtype=np.float32)
+        filter_smooth_sharp_field(
+            cutoff_modes,
+            output,
+            sigma_grid=2.0,
+            domain_length=2.0 * np.pi,
+            edge_width_fraction=0.0625,
+            slab=4,
+            workers=2,
+        )
+        np.testing.assert_allclose(
+            output,
+            0.5 * cutoff_modes,
+            rtol=3e-5,
+            atol=3e-5,
+        )
+
+    def test_zero_delta_is_assigned_to_plus_partition(self) -> None:
+        full = np.asarray([2.0, -2.0])
+        resolved = np.asarray([2.0, -2.0])
+        codes, _, _ = regime_codes(full, resolved, 0.1, 0.0)
+        np.testing.assert_array_equal(codes, [1, 5])
 
     def test_all_gradient_axes(self) -> None:
         self.assertEqual(ARRAY_AXIS_FOR_DERIVATIVE, (2, 1, 0))
@@ -73,6 +143,29 @@ class PhysicsTests(unittest.TestCase):
                 )
             finally:
                 close_memmap(output)
+                close_memmap(temp_a)
+                close_memmap(temp_b)
+
+    def test_cached_first_axis_spectrum_matches_streaming_filter(self) -> None:
+        n = 16
+        rng = np.random.default_rng(11)
+        field = rng.normal(size=(n, n, n)).astype(np.float32)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            expected = memmap(root / "expected.f32", field.shape)
+            actual = memmap(root / "actual.f32", field.shape)
+            temp_a = memmap(root / "a.f32", field.shape)
+            temp_b = memmap(root / "b.f32", field.shape)
+            try:
+                filter_field(field, expected, temp_a, temp_b, 2.0, slab=2, workers=2)
+                spectrum = axis2_spectrum(field, slab=2, workers=2)
+                filter_field_from_axis2_spectrum(
+                    spectrum, actual, temp_a, temp_b, 2.0, slab=2, workers=2
+                )
+                np.testing.assert_array_equal(actual, expected)
+            finally:
+                close_memmap(expected)
+                close_memmap(actual)
                 close_memmap(temp_a)
                 close_memmap(temp_b)
 

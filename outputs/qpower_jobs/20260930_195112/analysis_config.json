@@ -1,0 +1,48 @@
+{
+  "alphas": [
+    1.0,
+    2.0,
+    3.0,
+    4.0
+  ],
+  "axis_order": "zyx",
+  "betas": [
+    1.0,
+    1.5,
+    2.0,
+    3.0
+  ],
+  "conditional_percentile": 99.9,
+  "domain_lengths_xyz": [
+    6.283185307179586,
+    6.283185307179586,
+    6.283185307179586
+  ],
+  "event_mode": "positive",
+  "frames": [
+    {
+      "frame": 1,
+      "pressure_gradient_keys": [
+        "pressure_gradient"
+      ],
+      "pressure_gradient_path": "C:\\Xingqun_Gao\\persistent\\state\\inputs\\t000001\\pressure_gradient_cache.zarr",
+      "pressure_key": "pressure",
+      "pressure_path": null,
+      "time": 0.0,
+      "velocity_key": "velocity",
+      "velocity_path": "C:\\Xingqun_Gao\\persistent\\state\\inputs\\t000001\\velocity_cache.zarr"
+    }
+  ],
+  "gradient_method": "spectral",
+  "min_bin_count": 100,
+  "n_conditional_bins": 60,
+  "output_root": "outputs/qpower_analysis",
+  "overlay_pairs": null,
+  "periodic_xyz": [
+    true,
+    true,
+    true
+  ],
+  "pressure_definition": "P = p/rho",
+  "visualization_stride": 8
+}

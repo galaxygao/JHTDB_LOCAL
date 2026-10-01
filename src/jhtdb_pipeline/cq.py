@@ -24,9 +24,17 @@ from .weak_asymmetry import (
 )
 
 
-CQ_REPORT_VERSION = 2
-REGIME_CODES = (1, 2, 3, 4)
-REGIME_KEYS = ("Q1", "Q2", "Q3", "Q4")
+CQ_REPORT_VERSION = 4
+REGIME_CODES = (1, 2, 3, 4, 5, 6)
+REGIME_KEYS = ("1+", "1-", "2", "3", "4+", "4-")
+LEGACY_REGIME_KEYS = ("Q1", "Q2", "Q3", "Q4")
+REGIME_FIELD_SPECS = (
+    ("pi", "mean Π", "#1f77b4"),
+    ("s_bar", "mean S̄", "#ff7f0e"),
+    ("work_full", "mean W_full", "#2ca02c"),
+    ("work_resolved", "mean W_res", "#d62728"),
+    ("delta_w", "mean ΔW", "#9467bd"),
+)
 
 
 def _chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int:
@@ -45,6 +53,7 @@ def compute_cq(
     scope: str = "full_domain",
 ) -> dict[str, Any]:
     pi = root["pi"]
+    s_bar = root["s_bar"]
     work_full = root["work_full"]
     work_resolved = root["work_resolved"]
     expected = cfg.full_shape_zyx
@@ -52,18 +61,21 @@ def compute_cq(
         raise ValueError("C_q is defined here only for the full periodic domain")
     if any(
         tuple(array.shape) != expected
-        for array in (pi, work_full, work_resolved)
+        for array in (pi, s_bar, work_full, work_resolved)
     ):
         raise RuntimeError("C_q requires full-domain pi and work fields with identical shapes")
     if any(
         np.dtype(array.dtype) != np.dtype("<f4")
-        for array in (pi, work_full, work_resolved)
+        for array in (pi, s_bar, work_full, work_resolved)
     ):
         raise RuntimeError("C_q requires float32 pi and work fields")
 
     chunks = tuple(int(value) for value in pi.chunks)
-    counts = np.zeros(4, dtype=np.int64)
-    stored_sums = np.zeros(4, dtype=np.float64)
+    counts = np.zeros(6, dtype=np.int64)
+    field_keys = tuple(item[0] for item in REGIME_FIELD_SPECS)
+    field_sums = np.zeros((len(field_keys), 6), dtype=np.float64)
+    global_field_sums = np.zeros(len(field_keys), dtype=np.float64)
+    global_abs_field_sums = np.zeros(len(field_keys), dtype=np.float64)
     pi_sum = 0.0
     abs_pi_sum = 0.0
     pi_sumsq = 0.0
@@ -89,14 +101,27 @@ def compute_cq(
         )
         for key in spatial_slices(expected, chunks):
             values = np.asarray(pi[key], dtype=np.float32)
+            transport = np.asarray(s_bar[key], dtype=np.float32)
             full = np.asarray(work_full[key], dtype=np.float32)
             resolved = np.asarray(work_resolved[key], dtype=np.float32)
             if any(
                 not np.all(np.isfinite(block))
-                for block in (values, full, resolved)
+                for block in (values, transport, full, resolved)
             ):
                 raise ValueError("pi or work fields contain NaN or Inf")
             values64 = values.astype(np.float64)
+            field_values = (
+                values64,
+                transport.astype(np.float64),
+                full.astype(np.float64),
+                resolved.astype(np.float64),
+                (full - resolved).astype(np.float64),
+            )
+            for field_index, field in enumerate(field_values):
+                global_field_sums[field_index] += float(field.sum(dtype=np.float64))
+                global_abs_field_sums[field_index] += float(
+                    np.abs(field).sum(dtype=np.float64)
+                )
             absolute_values = np.abs(values)
             pi_sum += float(values64.sum(dtype=np.float64))
             abs_pi_sum += float(absolute_values.sum(dtype=np.float64))
@@ -114,22 +139,31 @@ def compute_cq(
             point_count += values.size
             full_negative = full < 0.0
             resolved_negative = resolved < 0.0
+            q1 = ~full_negative & ~resolved_negative
+            q4 = full_negative & resolved_negative
+            delta_nonnegative = (full - resolved) >= 0.0
             masks = (
-                ~full_negative & ~resolved_negative,
+                q1 & delta_nonnegative,
+                q1 & ~delta_nonnegative,
                 ~full_negative & resolved_negative,
                 full_negative & ~resolved_negative,
-                full_negative & resolved_negative,
+                q4 & delta_nonnegative,
+                q4 & ~delta_nonnegative,
             )
             for index, mask in enumerate(masks):
                 count = int(np.count_nonzero(mask))
                 counts[index] += count
                 if count:
-                    stored_sums[index] += float(values64[mask].sum(dtype=np.float64))
+                    for field_index, field in enumerate(field_values):
+                        field_sums[field_index, index] += float(
+                            field[mask].sum(dtype=np.float64)
+                        )
             progress.advance(task)
 
     if point_count != expected_count:
         raise RuntimeError("C_q point coverage is incomplete")
     abs_pi_p99, abs_pi_max = tail.result()
+    stored_sums = field_sums[0]
     partition_sum = float(stored_sums.sum(dtype=np.float64))
     residual_sum = partition_sum - pi_sum
     if abs_pi_sum == 0.0:
@@ -138,10 +172,29 @@ def compute_cq(
         relative_residual = abs(residual_sum) / abs_pi_sum
     partition_count = int(counts.sum(dtype=np.int64))
     coverage_passed = partition_count == point_count
-    flux_passed = (
-        relative_residual is not None
-        and relative_residual <= cfg.cq_partition_relative_max
-    )
+    field_partition_checks: dict[str, Any] = {}
+    for field_index, field_name in enumerate(field_keys):
+        field_partition_sum = float(field_sums[field_index].sum(dtype=np.float64))
+        field_target_sum = float(global_field_sums[field_index])
+        field_residual_sum = field_partition_sum - field_target_sum
+        field_abs_sum = float(global_abs_field_sums[field_index])
+        if field_abs_sum == 0.0:
+            field_relative = 0.0 if field_residual_sum == 0.0 else None
+        else:
+            field_relative = abs(field_residual_sum) / field_abs_sum
+        field_passed = bool(
+            field_relative is not None
+            and field_relative <= cfg.cq_partition_relative_max
+        )
+        field_partition_checks[field_name] = {
+            "sum_regime_contributions": field_partition_sum / point_count,
+            "target_global_mean": field_target_sum / point_count,
+            "residual_sum": field_residual_sum,
+            "residual_mean": field_residual_sum / point_count,
+            "relative_to_sum_abs_field": field_relative,
+            "passed": field_passed,
+        }
+    flux_passed = all(item["passed"] for item in field_partition_checks.values())
     passed = coverage_passed and flux_passed
 
     regimes: dict[str, Any] = {}
@@ -150,6 +203,14 @@ def compute_cq(
         stored_sum = float(stored_sums[index])
         contribution = stored_sum / point_count
         conditional = stored_sum / count if count else None
+        fields = {}
+        for field_index, field_name in enumerate(field_keys):
+            field_sum = float(field_sums[field_index, index])
+            fields[field_name] = {
+                "sum": field_sum,
+                "mean_contribution": field_sum / point_count,
+                "conditional_mean": field_sum / count if count else None,
+            }
         regimes[name] = {
             "code": code,
             "count": count,
@@ -159,6 +220,45 @@ def compute_cq(
             "stored_conditional_mean_pi": conditional,
             "les_forward_cq": -contribution,
             "les_forward_conditional_mean": -conditional if conditional is not None else None,
+            "fields": fields,
+        }
+
+    legacy_indices = {
+        "Q1": (0, 1),
+        "Q2": (2,),
+        "Q3": (3,),
+        "Q4": (4, 5),
+    }
+    legacy_regimes: dict[str, Any] = {}
+    for legacy_code, name in enumerate(LEGACY_REGIME_KEYS, start=1):
+        indices = legacy_indices[name]
+        count = int(sum(int(counts[index]) for index in indices))
+        stored_sum = float(sum(float(stored_sums[index]) for index in indices))
+        contribution = stored_sum / point_count
+        conditional = stored_sum / count if count else None
+        fields = {}
+        for field_index, field_name in enumerate(field_keys):
+            field_sum = float(
+                sum(float(field_sums[field_index, index]) for index in indices)
+            )
+            fields[field_name] = {
+                "sum": field_sum,
+                "mean_contribution": field_sum / point_count,
+                "conditional_mean": field_sum / count if count else None,
+            }
+        legacy_regimes[name] = {
+            "code": legacy_code,
+            "source_regimes": [REGIME_KEYS[index] for index in indices],
+            "count": count,
+            "volume_fraction": count / point_count,
+            "stored_pi_sum": stored_sum,
+            "stored_cq": contribution,
+            "stored_conditional_mean_pi": conditional,
+            "les_forward_cq": -contribution,
+            "les_forward_conditional_mean": (
+                -conditional if conditional is not None else None
+            ),
+            "fields": fields,
         }
 
     pi_mean = pi_sum / point_count
@@ -180,16 +280,25 @@ def compute_cq(
         "report_version": CQ_REPORT_VERSION,
         "scope": scope,
         "point_count": point_count,
-        "definition": "C_q = mean(pi * I[sign(work_full), sign(work_resolved) in Qq])",
-        "quadrant_definition": {
-            "Q1": "work_full >= 0 and work_resolved >= 0",
-            "Q2": "work_full >= 0 and work_resolved < 0",
-            "Q3": "work_full < 0 and work_resolved >= 0",
-            "Q4": "work_full < 0 and work_resolved < 0",
+        "definition": "mean(field * I_q) for five fields in six work/delta-work regimes",
+        "field_order": list(field_keys),
+        "field_labels": {key: label for key, label, _ in REGIME_FIELD_SPECS},
+        "regime_definition": {
+            "1+": "work_full >= 0, work_resolved >= 0, delta_w >= 0",
+            "1-": "work_full >= 0, work_resolved >= 0, delta_w < 0",
+            "2": "work_full >= 0 and work_resolved < 0",
+            "3": "work_full < 0 and work_resolved >= 0",
+            "4+": "work_full < 0, work_resolved < 0, delta_w >= 0",
+            "4-": "work_full < 0, work_resolved < 0, delta_w < 0",
+            "delta_w": "work_full - work_resolved",
             "zero_rule": "zero belongs to the nonnegative side",
             "thresholded_regime_independent": True,
         },
-        "partition_identity": "C_1 + C_2 + C_3 + C_4 = mean(pi)",
+        "partition_identity": "C_1+ + C_1- + C_2 + C_3 + C_4+ + C_4- = mean(pi)",
+        "partition_identities": {
+            field_name: f"sum_q mean({field_name} * I_q) = mean({field_name})"
+            for field_name in field_keys
+        },
         "sign_conventions": {
             "stored": "pi = tau_ij * d_j(velocity_bar_i) = tau:S",
             "les_forward": "Pi_LES = -tau:S = -pi",
@@ -199,9 +308,19 @@ def compute_cq(
             "stored_pi_mean": pi_mean,
             "stored_abs_pi_sum": abs_pi_sum,
             "les_forward_flux_mean": -pi_mean,
+            "field_sums": {
+                field_name: float(global_field_sums[field_index])
+                for field_index, field_name in enumerate(field_keys)
+            },
+            "field_means": {
+                field_name: float(global_field_sums[field_index]) / point_count
+                for field_index, field_name in enumerate(field_keys)
+            },
         },
         "regimes": regimes,
+        "legacy_regimes": legacy_regimes,
         "partition_check": {
+            "sum_regime_counts": partition_count,
             "sum_quadrant_counts": partition_count,
             "target_point_count": point_count,
             "sum_volume_fraction": partition_count / point_count,
@@ -213,6 +332,7 @@ def compute_cq(
             "relative_to_sum_abs_pi": relative_residual,
             "threshold": cfg.cq_partition_relative_max,
             "flux_passed": flux_passed,
+            "fields": field_partition_checks,
             "passed": bool(passed),
         },
         "weak_asymmetry": weak_asymmetry,
@@ -223,16 +343,42 @@ def compute_cq(
 def write_cq_artifacts(result_dir: Path, report: dict[str, Any]) -> str:
     report_hash = atomic_json(result_dir / "cq.json", report)
     names = list(REGIME_KEYS)
-    stored = [report["regimes"][name]["stored_cq"] for name in names]
-    les = [report["regimes"][name]["les_forward_cq"] for name in names]
     figure = go.Figure()
-    figure.add_bar(name="stored Cq (pi=tau:S)", x=names, y=stored)
-    figure.add_bar(name="LES-forward Cq (-tau:S)", x=names, y=les)
+    for field_name, label, color in REGIME_FIELD_SPECS:
+        values = [
+            report["regimes"][name]["fields"][field_name]["mean_contribution"]
+            for name in names
+        ]
+        customdata = [
+            [
+                report["regimes"][name]["volume_fraction"],
+                report["regimes"][name]["fields"][field_name]["conditional_mean"],
+            ]
+            for name in names
+        ]
+        figure.add_bar(
+            name=label,
+            x=names,
+            y=values,
+            marker_color=color,
+            customdata=customdata,
+            hovertemplate=(
+                "regime=%{x}<br>全域归一均值=%{y:.8e}<br>"
+                "体积分数=%{customdata[0]:.6f}<br>"
+                "regime 内条件均值=%{customdata[1]:.8e}<extra></extra>"
+            ),
+        )
     figure.update_layout(
-        title="Full-domain C_q decomposition",
+        title="Full-domain regime contributions for five physical fields",
         barmode="group",
-        xaxis_title="regime",
-        yaxis_title="contribution to domain mean",
+        xaxis={
+            "title": "regime",
+            "type": "category",
+            "categoryorder": "array",
+            "categoryarray": names,
+        },
+        yaxis_title="mean(field * I_q) over all grid points",
+        legend_title_text="physical field",
     )
     output = result_dir / "cq.html"
     temporary = output.with_suffix(output.suffix + ".partial")

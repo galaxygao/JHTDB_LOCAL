@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,13 +8,18 @@ from pathlib import Path
 import numpy as np
 
 from jhtdb_pipeline.dashboard import (
+    CQ_REGIME_ORDER,
     _cq_figure,
+    _continuous_figure,
     _regime_figure,
+    _regime_pi_figure,
     _symmetric_color_limit,
     _symlog_transform,
     _weak_asymmetry_figure,
     _global_totals_figure,
     complete_result_paths,
+    result_selection_catalog,
+    regime_pi_rows,
     cq_rows,
     energy_identity_residual,
     extract_gradient_slice,
@@ -22,6 +28,7 @@ from jhtdb_pipeline.dashboard import (
     sbar_metric_rows,
     weak_asymmetry_rows,
     spatial_axis_length,
+    six_regime_slice,
 )
 
 
@@ -46,6 +53,17 @@ class DashboardTests(unittest.TestCase):
         np.testing.assert_allclose(transformed[:2], -transformed[:2:-1])
         with self.assertRaisesRegex(ValueError, "linear_threshold"):
             _symlog_transform(values, 0.0)
+
+    def test_continuous_figure_keeps_full_domain_coordinates_when_downsampled(self) -> None:
+        values = np.zeros((1024, 1024), dtype=np.float32)
+        figure = _continuous_figure(values, "full-domain work")
+        trace = figure.data[0]
+        self.assertEqual(trace.z.shape, (512, 512))
+        np.testing.assert_array_equal(trace.x, np.arange(0, 1024, 2))
+        np.testing.assert_array_equal(trace.y, np.arange(0, 1024, 2))
+        self.assertEqual(list(figure.layout.xaxis.range), [0, 1023])
+        self.assertEqual(list(figure.layout.yaxis.range), [0, 1023])
+        self.assertIn("stride=2", figure.layout.xaxis.title.text)
 
     def test_slice_axis_mapping(self) -> None:
         vector = np.arange(3 * 4 * 5 * 6).reshape(3, 4, 5, 6)
@@ -73,24 +91,60 @@ class DashboardTests(unittest.TestCase):
         figure = _global_totals_figure(report)
         self.assertEqual(list(figure.data[0].y), [1.0, 2.0, 3.0, 4.0])
 
-    def test_cq_figure_and_rows_keep_q1_through_q4_order(self) -> None:
+    def test_cq_figure_and_rows_keep_six_regime_order(self) -> None:
+        field_names = ("pi", "s_bar", "work_full", "work_resolved", "delta_w")
         report = {
             "regimes": {
                 name: {
                     "volume_fraction": index / 10.0,
+                    "count": index,
                     "stored_cq": float(index),
                     "les_forward_cq": float(-index),
                     "stored_conditional_mean_pi": float(index + 10),
+                    "fields": {
+                        field_name: {
+                            "mean_contribution": float(index * (field_index + 1)),
+                            "conditional_mean": float(index + field_index + 10),
+                        }
+                        for field_index, field_name in enumerate(field_names)
+                    },
                 }
-                for index, name in enumerate(("Q1", "Q2", "Q3", "Q4"), start=1)
+                for index, name in enumerate(("1+", "1-", "2", "3", "4+", "4-"), start=1)
             }
         }
         figure = _cq_figure(report)
-        self.assertEqual(list(figure.data[0].y), [1.0, 2.0, 3.0, 4.0])
-        self.assertEqual(list(figure.data[1].y), [-1.0, -2.0, -3.0, -4.0])
+        self.assertEqual(len(figure.data), 5)
         self.assertEqual(
-            [row["regime"] for row in cq_rows(report)],
-            ["Q1", "Q2", "Q3", "Q4"],
+            [trace.name for trace in figure.data],
+            ["mean Π", "mean S̄", "mean W_full", "mean W_res", "mean ΔW"],
+        )
+        self.assertEqual(list(figure.data[0].y), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        self.assertEqual(
+            list(figure.data[0].x), ["1+", "1-", "2", "3", "4+", "4-"]
+        )
+        self.assertEqual(figure.layout.barmode, "group")
+        self.assertEqual(figure.layout.legend.title.text, "物理量")
+        self.assertEqual(figure.layout.xaxis.type, "category")
+        self.assertEqual(
+            list(figure.layout.xaxis.categoryarray),
+            ["1+", "1-", "2", "3", "4+", "4-"],
+        )
+        self.assertEqual(
+            [row["regime"] for row in cq_rows(report, "pi")],
+            ["1+", "1-", "2", "3", "4+", "4-"],
+        )
+        for field_name in field_names:
+            rows = cq_rows(report, field_name)
+            self.assertEqual(len(rows), 6)
+            self.assertEqual(len(rows[0]), 5)
+
+    def test_v5_regime_slice_is_converted_to_six_partitions(self) -> None:
+        old = np.asarray([1, 1, 2, 3, 4, 4, 0], dtype=np.uint8)
+        full = np.asarray([3, 2, 2, -2, -2, -3, 0], dtype=np.float32)
+        resolved = np.asarray([2, 3, -2, 2, -3, -2, 1], dtype=np.float32)
+        np.testing.assert_array_equal(
+            six_regime_slice(old, full, resolved, 5),
+            [1, 2, 3, 4, 5, 6, 0],
         )
 
     def test_regime_figure_keeps_full_domain_without_string_payload(self) -> None:
@@ -111,6 +165,26 @@ class DashboardTests(unittest.TestCase):
         rows = weak_asymmetry_rows(report)
         self.assertEqual(rows[0]["sign"], "positive/backscatter")
         self.assertEqual(rows[1]["sign"], "negative/forward")
+
+    def test_regime_pi_figure_and_rows_expose_requested_metrics(self) -> None:
+        directions = {
+            "backscatter": {"count": 2, "mean": 3.0, "fraction": 0.4, "intensity": 1.2},
+            "forward": {"count": 3, "mean": 4.0, "fraction": 0.6, "intensity": 2.4},
+        }
+        report = {
+            "regime_order": list(CQ_REGIME_ORDER),
+            "regimes": {
+                name: {"directions": directions} for name in CQ_REGIME_ORDER
+            },
+        }
+        figure = _regime_pi_figure(report)
+        self.assertEqual(len(figure.data), 6)
+        self.assertEqual(list(figure.data[0].y), [3.0] * 6)
+        self.assertEqual(list(figure.data[1].y), [4.0] * 6)
+        rows = regime_pi_rows(report)
+        self.assertEqual(len(rows), 12)
+        self.assertEqual(rows[0]["regime"], "1+")
+        self.assertEqual(rows[0]["mean |Pi|"], "3.000000e+00")
 
     def test_sbar_metric_rows_expose_thresholds_and_status(self) -> None:
         report = {
@@ -158,6 +232,42 @@ class DashboardTests(unittest.TestCase):
                 path.mkdir()
             (complete / "COMPLETE").write_text("{}\n", encoding="utf-8")
             self.assertEqual(complete_result_paths(root), [complete])
+
+    def test_result_selectors_use_manifest_without_opening_zarr(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            specifications = (
+                ("gaussian", {"filter_type": "gaussian"}),
+                (
+                    "relative",
+                    {
+                        "filter_type": "smooth_sharp",
+                        "sharp_edge_width_fraction": 0.1171875,
+                    },
+                ),
+            )
+            paths = []
+            for index, (name, filter_metadata) in enumerate(specifications, start=1):
+                path = root / name
+                path.mkdir()
+                manifest = {
+                    "time_index": 1,
+                    "physical_time": 0.0,
+                    "sigma_grid": float(index * 10),
+                    **filter_metadata,
+                }
+                (path / "manifest.json").write_text(
+                    json.dumps(manifest), encoding="utf-8"
+                )
+                paths.append(path)
+
+            catalog = result_selection_catalog(paths)
+            self.assertEqual(len(catalog), 2)
+            self.assertEqual(catalog[0]["smoothing_label"], "不适用")
+            self.assertEqual(
+                catalog[1]["smoothing_key"],
+                ("fraction_of_cutoff", 0.1171875),
+            )
 
 
 if __name__ == "__main__":

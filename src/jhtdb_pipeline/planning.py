@@ -56,7 +56,7 @@ def tiles_for(cfg: PipelineConfig) -> list[Tile]:
 
 
 def requests_for(cfg: PipelineConfig) -> list[Tile]:
-    """Return the larger, strictly serial SciServer GetCutout requests."""
+    """Return the configured strictly serial local GetCutout requests."""
     return _blocks_for(cfg.grid_shape, cfg.request_shape)
 
 
@@ -91,7 +91,7 @@ def plan(cfg: PipelineConfig, time_index: int) -> dict[str, object]:
     return {
         "dataset": cfg.dataset,
         "variable": cfg.variable,
-        "backend": "sciserver_giverny",
+        "backend": "local_givernylocal",
         "time_index": time_index,
         "physical_time": cfg.physical_time(time_index),
         "grid_shape": list(cfg.grid_shape),
@@ -109,9 +109,15 @@ def plan(cfg: PipelineConfig, time_index: int) -> dict[str, object]:
         "batch_result_uncompressed_GiB": round(
             len(cfg.sigma_grids) * cfg.result_uncompressed_bytes / 1024**3, 3
         ),
-        "persistent_result_path": str(cfg.result_path(time_index)),
+        "result_path": str(cfg.result_path(time_index)),
+        "filter_type": cfg.filter_type,
+        "sharp_edge_width_fraction": (
+            cfg.sharp_edge_width_fraction
+            if cfg.filter_type == "smooth_sharp"
+            else None
+        ),
         "sigma_grids": list(cfg.sigma_grids),
-        "persistent_result_paths": [
+        "result_paths": [
             str(cfg.result_path(time_index, sigma)) for sigma in cfg.sigma_grids
         ],
         "scratch_run_path": str(cfg.run_path(time_index)),
