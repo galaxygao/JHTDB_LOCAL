@@ -1,6 +1,6 @@
 # Regime 内 Pi 正反传输
 
-核心实现在 [`src/jhtdb_pipeline/regime_pi.py`](../src/jhtdb_pipeline/regime_pi.py)，本目录保存输出。它逐块读取完整域 `pi`、
+核心实现在 [`statistics.py`](statistics.py)，本目录保存代码、测试和输出。主库 `jhtdb_pipeline.regime_pi` 仅为 CLI/GUI 保留兼容导出。它逐块读取完整域 `pi`、
 `work_full` 和 `work_resolved`，在六个 Cq regime 内分别统计：
 
 - backscatter：存储的 `pi>0`；
@@ -25,3 +25,7 @@ manifest hash、覆盖检查和 closure。当前命令不单独写 CSV 或 HTML�
 GUI 根据这份 JSON 动态生成。
 
 GUI 的 “Weak asymmetry” 页面会自动读取与当前 result manifest hash 匹配的这份报告。
+
+## 代码与验证导航
+
+所有运行命令从项目根目录执行。完整参数见 [CLI 参考](../docs/cli_reference.md)，所有函数与实现定位见 [本项目代码参考](CODE_REFERENCE.md)。测试：`python -m pytest regime_pi/tests -q`；解释器使用根 README 对应平台虚拟环境。返回 [项目 README](../README.md)。

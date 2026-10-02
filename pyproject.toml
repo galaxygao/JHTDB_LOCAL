@@ -28,4 +28,6 @@ dev = ["pytest>=8,<9"]
 jhtdb-pipeline = "jhtdb_pipeline.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["jhtdb_pipeline*", "block_statistics*", "qpower_analysis*", "pi_pdf*", "pi_slices*", "scatter*", "regime_pi*", "flux_plateau*"]
+namespaces = false

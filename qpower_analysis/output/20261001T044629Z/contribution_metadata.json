@@ -1,0 +1,9 @@
+{
+  "scope": "all grid points; no sampling",
+  "summation": "float64 weighted histograms",
+  "thresholds": "reuse q_rms and u2_mean from the existing run summary",
+  "q_definition": "-u dot grad(P)",
+  "net_q_fraction": "not used: near-zero signed denominator",
+  "energy_fraction": "u2 fraction equals kinetic-energy fraction for constant density",
+  "overlapping_thresholds": "nested regions; fractions must not be added across thresholds"
+}

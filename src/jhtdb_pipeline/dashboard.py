@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from jhtdb_pipeline.config import load_config
+from jhtdb_pipeline.config import RESULT_SCHEMA_VERSION, load_config
 from jhtdb_pipeline.cq import CQ_REPORT_VERSION, REGIME_FIELD_SPECS
 from jhtdb_pipeline.regime_pi import (
     DEFAULT_REGIME_PI_OUTPUT_ROOT,
@@ -58,7 +58,7 @@ def complete_result_paths(result_root: Path) -> list[Path]:
         if (
             path.is_dir()
             and not path.name.startswith(".")
-            and not path.name.endswith("_shared")
+            and not path.name.endswith(("_shared", "_shared_full"))
             and (path / "COMPLETE").is_file()
         )
     )
@@ -153,31 +153,9 @@ def energy_identity_residual(
     return work_full - work_resolved + pi - s_bar
 
 
-def six_regime_slice(
-    stored: np.ndarray,
-    work_full: np.ndarray,
-    work_resolved: np.ndarray,
-    schema_version: int,
-) -> np.ndarray:
-    values = np.asarray(stored, dtype=np.uint8)
-    if schema_version >= 6:
-        return values
-    delta_nonnegative = (work_full - work_resolved) >= 0.0
-    converted = np.zeros(values.shape, dtype=np.uint8)
-    converted[(values == 1) & delta_nonnegative] = 1
-    converted[(values == 1) & ~delta_nonnegative] = 2
-    converted[values == 2] = 3
-    converted[values == 3] = 4
-    converted[(values == 4) & delta_nonnegative] = 5
-    converted[(values == 4) & ~delta_nonnegative] = 6
-    return converted
-
-
 def _cq_figure(report: dict):
     regimes = report["regimes"]
     order = tuple(name for name in CQ_REGIME_ORDER if name in regimes)
-    if not order:
-        order = ("Q1", "Q2", "Q3", "Q4")
     figure = go.Figure()
     for field_name, label, color in REGIME_FIELD_SPECS:
         values = [
@@ -224,6 +202,8 @@ def result_selection_metadata(path: Path) -> dict | None:
         return None
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("schema_version") != RESULT_SCHEMA_VERSION:
+            return None
         time_index = int(manifest["time_index"])
         sigma_grid = float(manifest["sigma_grid"])
         filter_type = str(manifest.get("filter_type", "gaussian"))
@@ -280,8 +260,6 @@ def cq_rows(report: dict, field_name: str = "pi") -> list[dict[str, str]]:
         raise ValueError(f"unknown regime field {field_name!r}")
     label = labels[field_name]
     order = tuple(name for name in CQ_REGIME_ORDER if name in report["regimes"])
-    if not order:
-        order = ("Q1", "Q2", "Q3", "Q4")
     for name in order:
         item = report["regimes"][name]
         field = item["fields"][field_name]
@@ -634,7 +612,7 @@ def main() -> None:
             else result["velocity"]
         )
         length = spatial_axis_length(indexed_field, axis)
-        scope = "全域" if page in ("Work 与 regime", "Π 与 S̄") else "中心域"
+        scope = "全域"
         index = st.sidebar.slider(
             f"{scope}切片 index", 0, length - 1, length // 2
         )
@@ -696,12 +674,8 @@ def main() -> None:
         left, right = st.columns(2)
         left.plotly_chart(_continuous_figure(full, "work_full"), use_container_width=True)
         right.plotly_chart(_continuous_figure(resolved, "work_resolved"), use_container_width=True)
-        codes = six_regime_slice(
-            extract_scalar_slice(result["regime"], axis, index),
-            full,
-            resolved,
-            int(result.attrs.get("result_schema_version", 5)),
-        )
+
+        codes = extract_scalar_slice(result["regime"], axis, index)
         st.plotly_chart(_regime_figure(codes, "regime（全域）"), use_container_width=True)
         st.plotly_chart(
             _continuous_figure(delta, "ΔW = W_full − W_resolved"),
@@ -709,39 +683,36 @@ def main() -> None:
         )
         st.json(dict(result.attrs.get("occupancy", {})))
     elif page == "Π 与 S̄":
-        if "pi" not in result or "s_bar" not in result:
-            st.warning("该旧版结果不包含 pi/s_bar；需要用新版物理流水线重新计算。")
-        else:
-            pi = extract_scalar_slice(result["pi"], axis, index)
-            s_bar = extract_scalar_slice(result["s_bar"], axis, index)
-            limit = _symmetric_color_limit(np.stack((pi, s_bar)), 99.0)
-            left, right = st.columns(2)
-            left.plotly_chart(
-                _continuous_figure(pi, "Π = τᵢⱼ ∂ⱼūᵢ", color_limit=limit),
-                use_container_width=True,
-            )
-            right.plotly_chart(
-                _continuous_figure(
-                    s_bar, "S̄ = ∂ⱼ(ūᵢτᵢⱼ)", color_limit=limit
-                ),
-                use_container_width=True,
-            )
-            st.caption(
-                "式 (2) 符号约定：W_full = W_resolved − Π + S̄；"
-                "常见 LES 定义 Π_conventional = −τ:S = −Π。"
-            )
-            full = extract_scalar_slice(result["work_full"], axis, index)
-            resolved = extract_scalar_slice(result["work_resolved"], axis, index)
-            residual = energy_identity_residual(full, resolved, pi, s_bar)
-            st.plotly_chart(
-                _continuous_figure(
-                    residual,
-                    "当前切片能量等式残差 W_full − W_resolved + Π − S̄",
-                    color_percentile=99.0,
-                ),
-                use_container_width=True,
-            )
-            st.json(dict(result.attrs.get("decomposition", {})))
+        pi = extract_scalar_slice(result["pi"], axis, index)
+        s_bar = extract_scalar_slice(result["s_bar"], axis, index)
+        limit = _symmetric_color_limit(np.stack((pi, s_bar)), 99.0)
+        left, right = st.columns(2)
+        left.plotly_chart(
+            _continuous_figure(pi, "Π = τᵢⱼ ∂ⱼūᵢ", color_limit=limit),
+            use_container_width=True,
+        )
+        right.plotly_chart(
+            _continuous_figure(
+                s_bar, "S̄ = ∂ⱼ(ūᵢτᵢⱼ)", color_limit=limit
+            ),
+            use_container_width=True,
+        )
+        st.caption(
+            "式 (2) 符号约定：W_full = W_resolved − Π + S̄；"
+            "常见 LES 定义 Π_conventional = −τ:S = −Π。"
+        )
+        full = extract_scalar_slice(result["work_full"], axis, index)
+        resolved = extract_scalar_slice(result["work_resolved"], axis, index)
+        residual = energy_identity_residual(full, resolved, pi, s_bar)
+        st.plotly_chart(
+            _continuous_figure(
+                residual,
+                "当前切片能量等式残差 W_full − W_resolved + Π − S̄",
+                color_percentile=99.0,
+            ),
+            use_container_width=True,
+        )
+        st.json(dict(result.attrs.get("decomposition", {})))
     elif page == "Regime 五场统计":
         st.header("全域 Regime 五场统计")
         cq_path = selected / "cq.json"
@@ -929,7 +900,7 @@ def main() -> None:
             else:
                 st.warning("missing")
 
-    st.caption("本 GUI 只读 C 盘 persistent 正式结果，不修改计算数据。")
+    st.caption("本 GUI 只读配置 result_root 中的全域正式结果，不修改计算数据。")
 
 
 if __name__ == "__main__":

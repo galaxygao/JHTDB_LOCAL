@@ -276,65 +276,6 @@ def compute_weak_asymmetry(
     )
 
 
-def compute_abs_pi_tail(root: Any, cfg: PipelineConfig) -> tuple[float, float]:
-    """Read pi once and compute only the new p99/max metrics for a v1 report."""
-    pi = root["pi"]
-    expected = cfg.full_shape_zyx
-    if tuple(pi.shape) != expected or np.dtype(pi.dtype) != np.dtype("<f4"):
-        raise RuntimeError("weak asymmetry requires full-domain float32 pi")
-    chunks = tuple(int(value) for value in pi.chunks)
-    tail = AbsPiPercentileAccumulator(
-        int(np.prod(expected, dtype=np.int64))
-    )
-    with Progress(
-        SpinnerColumn("line"),
-        TextColumn("{task.description}"),
-        BarColumn(),
-        "{task.completed}/{task.total}",
-        TimeElapsedColumn(),
-        console=Console(),
-    ) as progress:
-        task = progress.add_task(
-            "full-domain weak asymmetry p99/max",
-            total=_chunk_count(expected, chunks),
-        )
-        for key in spatial_slices(expected, chunks):
-            values = np.asarray(pi[key], dtype=np.float32)
-            if not np.all(np.isfinite(values)):
-                raise ValueError("pi contains NaN or Inf")
-            tail.add(np.abs(values))
-            progress.advance(task)
-    return tail.result()
-
-
-def upgrade_v1_report(
-    report: dict[str, Any], abs_pi_p99: float, abs_pi_max: float
-) -> dict[str, Any]:
-    upgraded = json.loads(json.dumps(report))
-    global_values = upgraded["global"]
-    absolute_mean = abs(float(global_values["pi_mean"]))
-    ratio_p99, ratio_p99_error = _safe_nonnegative_ratio(
-        absolute_mean, abs_pi_p99, "percentile(abs(pi), 99)"
-    )
-    ratio_max, ratio_max_error = _safe_nonnegative_ratio(
-        absolute_mean, abs_pi_max, "max(abs(pi))"
-    )
-    global_values.update(
-        {
-            "abs_pi_p99": abs_pi_p99,
-            "abs_pi_max": abs_pi_max,
-            "ratio_p99": ratio_p99,
-            "ratio_p99_definition": "abs(mean(pi)) / percentile(abs(pi), 99)",
-            "ratio_p99_error": ratio_p99_error,
-            "ratio_max": ratio_max,
-            "ratio_max_definition": "abs(mean(pi)) / max(abs(pi))",
-            "ratio_max_error": ratio_max_error,
-        }
-    )
-    upgraded["report_version"] = WEAK_ASYMMETRY_REPORT_VERSION
-    return upgraded
-
-
 def write_weak_asymmetry_artifacts(
     result_dir: Path, report: dict[str, Any]
 ) -> str:
@@ -394,7 +335,7 @@ def _load_chained_report(result_dir: Path, root: Any) -> dict[str, Any] | None:
     manifest_hash = _file_hash(manifest_path)
     report_version = report.get("report_version")
     valid = (
-        report_version in (1, WEAK_ASYMMETRY_REPORT_VERSION)
+        report_version == WEAK_ASYMMETRY_REPORT_VERSION
         and report.get("scope") == "full_domain"
         and manifest.get("weak_asymmetry_report_version") == report_version
         and manifest.get("weak_asymmetry_report_hash") == report_hash
@@ -474,14 +415,7 @@ def run_weak_asymmetry(
         )
         if root.attrs.get("result_schema_version") != RESULT_SCHEMA_VERSION:
             raise RuntimeError("current full-domain result schema is required")
-        stored_report = _load_chained_report(result_dir, root)
-        if stored_report is not None and stored_report.get("report_version") == 1:
-            abs_pi_p99, abs_pi_max = compute_abs_pi_tail(root, cfg)
-            report = upgrade_v1_report(
-                stored_report, abs_pi_p99, abs_pi_max
-            )
-        else:
-            report = compute_weak_asymmetry(root, cfg)
+        report = compute_weak_asymmetry(root, cfg)
         _persist_weak_asymmetry(result_dir, root, report)
         return report
 

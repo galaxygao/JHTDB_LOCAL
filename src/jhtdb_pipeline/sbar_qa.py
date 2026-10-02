@@ -47,7 +47,9 @@ def compute_sbar_qa(
     if len(shapes) != 1:
         raise RuntimeError("the four energy fields do not have identical shapes")
     shape = shapes.pop()
-    expected = cfg.full_shape_zyx if scope == "full_domain" else cfg.result_shape_zyx
+    if scope != "full_domain":
+        raise ValueError("QA requires full_domain scope")
+    expected = cfg.full_shape_zyx
     if shape != expected:
         raise RuntimeError(
             f"S_bar QA scope {scope} expects {expected}, found {shape}"

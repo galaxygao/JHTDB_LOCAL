@@ -1,0 +1,54 @@
+# Apple M5 / 10 CPU cores / 24 GB RAM. Run from the project root.
+# Full-domain fields; spectra and raw gradients are shared through mapped files.
+dataset: isotropic1024coarse
+variable: velocity
+grid_shape:
+- 1024
+- 1024
+- 1024
+domain_length: 6.283185307179586
+stored_time_step: 0.002
+platform:
+  state_root: .local/state
+  run_root: .local/runs
+  result_root: .local/results
+auth:
+  token_file: ${HOME}/.secrets/jhtdb_token
+jhtdb:
+  request_shape:
+  - 256
+  - 256
+  - 128
+  tile_shape:
+  - 128
+  - 128
+  - 128
+  retries: 3
+  backoff_seconds: 2.0
+  request_cooldown_seconds: 0.25
+storage:
+  compression_level: 3
+  compression_threads: 6
+  persistent_safety_reserve_gib: 24
+  scratch_safety_reserve_gib: 24
+validation:
+  divergence_relative_rms_max: 0.0001
+  divergence_relative_max_max: 0.001
+  energy_identity_relative_rms_max: 0.0001
+  s_bar_vs_pi_net_max: 0.01
+  cq_partition_relative_max: 1.0e-12
+physics:
+  sigma_grid:
+  - 10
+  - 15
+  - 30
+  - 55
+  - 75
+  filter_type: smooth_sharp
+  sharp_edge_width_fraction: 0.1171875
+  epsilon_abs: 0.0
+  epsilon_rel: 0.001
+  fft_cache_mode: memmap
+  fft_workers: 10
+  fft_slab_width: 16
+  cleanup_scratch_on_success: true

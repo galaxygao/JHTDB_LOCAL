@@ -28,7 +28,6 @@ from jhtdb_pipeline.dashboard import (
     sbar_metric_rows,
     weak_asymmetry_rows,
     spatial_axis_length,
-    six_regime_slice,
 )
 
 
@@ -138,14 +137,6 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(len(rows), 6)
             self.assertEqual(len(rows[0]), 5)
 
-    def test_v5_regime_slice_is_converted_to_six_partitions(self) -> None:
-        old = np.asarray([1, 1, 2, 3, 4, 4, 0], dtype=np.uint8)
-        full = np.asarray([3, 2, 2, -2, -2, -3, 0], dtype=np.float32)
-        resolved = np.asarray([2, 3, -2, 2, -3, -2, 1], dtype=np.float32)
-        np.testing.assert_array_equal(
-            six_regime_slice(old, full, resolved, 5),
-            [1, 2, 3, 4, 5, 6, 0],
-        )
 
     def test_regime_figure_keeps_full_domain_without_string_payload(self) -> None:
         values = np.zeros((1024, 1024), dtype=np.uint8)
@@ -251,6 +242,7 @@ class DashboardTests(unittest.TestCase):
                 path = root / name
                 path.mkdir()
                 manifest = {
+                    "schema_version": 7,
                     "time_index": 1,
                     "physical_time": 0.0,
                     "sigma_grid": float(index * 10),

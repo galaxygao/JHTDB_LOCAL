@@ -24,5 +24,5 @@
   "conditional_percentile": 99.9,
   "overlay_pairs": null,
   "visualization_stride": 8,
-  "output_root": "outputs/qpower_analysis"
+  "output_root": "qpower_analysis/output"
 }

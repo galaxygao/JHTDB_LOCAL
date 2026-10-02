@@ -22,8 +22,8 @@ class WeakAsymmetryTests(unittest.TestCase):
         cfg = replace(
             load_config("configs/pipeline.yaml"),
             grid_shape=(2, 2, 2),
-            crop_start=(0, 0, 0),
-            crop_shape=(2, 2, 2),
+
+
         )
         root = zarr.group()
         pi = np.asarray(

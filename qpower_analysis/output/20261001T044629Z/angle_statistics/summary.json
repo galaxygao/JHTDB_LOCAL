@@ -1,0 +1,23 @@
+{
+  "alpha": 1.0,
+  "beta": 1.0,
+  "selection": "q/q_rms > alpha AND u2/mean(u2) > beta",
+  "angle": "acos(-u dot grad(P) / (|u| |grad(P)|)), degrees",
+  "weighting": "equal cell volume",
+  "count": 52800256,
+  "volume_fraction": 0.04917407035827637,
+  "mean_angle_deg": 45.221294869816575,
+  "angle_percentiles": {
+    "p025": 9.705352783203125,
+    "p25": 31.412750244140625,
+    "p50": 46.015869140625,
+    "p75": 59.53460693359375,
+    "p975": 77.57229614257812
+  },
+  "q_definition": "q=-u dot grad(P), normalized by q_rms",
+  "q_rms": 3.177117347717285,
+  "u2_mean": 1.365438461303711,
+  "mean_cos_theta": 0.6679775653458863,
+  "pearson_angle_q_normalized": -0.072114326681331,
+  "pearson_angle_u2_normalized": 0.13770014163799518
+}

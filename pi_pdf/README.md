@@ -45,3 +45,7 @@ metadata 中记录；尾部直方图覆盖包括精确零在内的全部格点�
 ```
 
 该分析不执行条件 PDF、tau-strain 分解、DBSCAN、GMM 或 decision tree。
+
+## 代码与验证导航
+
+所有运行命令从项目根目录执行。完整参数见 [CLI 参考](../docs/cli_reference.md)，所有函数与实现定位见 [本项目代码参考](CODE_REFERENCE.md)。测试：`python -m pytest pi_pdf/tests -q`；解释器使用根 README 对应平台虚拟环境。返回 [项目 README](../README.md)。

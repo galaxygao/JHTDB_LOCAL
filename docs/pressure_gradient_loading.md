@@ -1,5 +1,7 @@
 # Pressure gradient acquisition
 
+> 本页仅用于独立的服务端 `fd4noint` 梯度路径。当前 deploy 默认使用标量压力下载 + 本地 FD4，见 [部署说明](deployment.md)。通用跨机步骤见 [系统迁移](system_migration.md)。
+
 Run from the project root using the existing Python environment and pipeline
 configuration. Your personal token is resolved by the existing authentication
 code (environment first, then the configured token file). There is no public
@@ -40,7 +42,6 @@ state/
   inputs/t000001/
     velocity_cache.zarr/velocity                 (3,z,y,x)
     pressure_gradient_cache.zarr/pressure_gradient (3,z,y,x)
-    strain_cache.zarr/sij_sij
   catalog.sqlite                                existing velocity ledger
   pressure_gradient_catalog.sqlite              same ledger schema, separate field
   manifests/pressure_gradient/input_t000001.json
@@ -51,8 +52,8 @@ Gradient components are `dPdx,dPdy,dPdz`, for JHTDB kinematic pressure `P=p/rho`
 Dataset, frame, physical time, grid shape, component order, operator, derivative
 method, checksums, and validation status are persisted. Existing velocity
 manifest hashes and processed results are not changed by pressure acquisition.
-Velocity gradients remain in `results/t000001_shared/center_raw.zarr/gradient`
-with their existing center-crop scope and spectral differentiation provenance.
+Velocity gradients remain in `results/t000001_shared_full/full_raw.zarr/gradient`
+with full-domain scope and spectral differentiation provenance.
 
 All network requests share the existing `jhtdb-request.lock`. Pressure requests
 use 128x128x64 grid-point blocks (1048576 points), one request at a time, with
@@ -80,8 +81,8 @@ pressure_gradient = fields['pressure_gradient']
 
 The loader checks that both stores are validated and have matching dataset,
 time, grid, and axis metadata. The existing `open_complete_result` continues to
-provide velocity and velocity-gradient center crops. Apply the same crop to
-pressure gradients when comparing to those result arrays.
+provide full-domain velocity and velocity gradients, aligned with the full
+pressure-gradient grid.
 
 `qpower_analysis/config.example.json` now points to the pressure-gradient cache.
 After acquisition and validation, run its preflight before analysis. No live

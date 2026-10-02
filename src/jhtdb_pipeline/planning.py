@@ -103,12 +103,13 @@ def plan(cfg: PipelineConfig, time_index: int) -> dict[str, object]:
         "checksum_tiles": len(tiles),
         "store_tile_uncompressed_MiB": round(tile_bytes / 1024**2, 2),
         "snapshot_uncompressed_GiB": round(cfg.bytes_per_snapshot / 1024**3, 2),
-        "result_crop_start_xyz": list(cfg.crop_start),
-        "result_crop_shape_xyz": list(cfg.crop_shape),
+
+
         "result_uncompressed_GiB": round(cfg.result_uncompressed_bytes / 1024**3, 3),
         "batch_result_uncompressed_GiB": round(
             len(cfg.sigma_grids) * cfg.result_uncompressed_bytes / 1024**3, 3
         ),
+        "result_shape_xyz": list(cfg.grid_shape),
         "result_path": str(cfg.result_path(time_index)),
         "filter_type": cfg.filter_type,
         "sharp_edge_width_fraction": (

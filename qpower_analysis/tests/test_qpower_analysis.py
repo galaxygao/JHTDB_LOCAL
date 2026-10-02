@@ -73,3 +73,17 @@ def test_preflight_rejects_missing_pressure(tmp_path):
     config = {"frames": [{"frame": 1, "velocity_path": str(path)}]}
     with pytest.raises(qpa.PreflightError, match="pressure data is required"):
         qpa.preflight(config)
+
+
+def test_random_overlap_baseline():
+    result = qpa.random_overlap_baseline(20, 40, 100, 16)
+    assert result['random_p_a_given_b'] == .2
+    assert result['random_p_b_given_a'] == .4
+    assert result['p_a_given_b_over_random'] == 2
+    assert result['p_b_given_a_over_random'] == 2
+    assert qpa.random_overlap_baseline(20, 40, 100, 8)['p_a_given_b_over_random'] == 1
+    assert qpa.random_overlap_baseline(20, 40, 100, 0)['p_a_given_b_over_random'] == 0
+    empty = qpa.random_overlap_baseline(0, 40, 100, 0)
+    assert empty['random_p_a_given_b'] == 0
+    assert np.isnan(empty['random_p_b_given_a'])
+    assert np.isnan(empty['p_a_given_b_over_random'])

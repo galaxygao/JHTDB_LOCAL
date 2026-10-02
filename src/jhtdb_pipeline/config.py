@@ -9,7 +9,7 @@ from typing import Any, Mapping
 import yaml
 
 
-RESULT_SCHEMA_VERSION = 6
+RESULT_SCHEMA_VERSION = 7
 FILTER_TYPES = ("gaussian", "smooth_sharp")
 
 
@@ -48,7 +48,7 @@ def sigma_tag(value: float) -> str:
 
 
 def result_zarr_name(sigma_grid: float) -> str:
-    return f"center_result_sigma_{sigma_tag(sigma_grid)}.zarr"
+    return f"full_result_sigma_{sigma_tag(sigma_grid)}.zarr"
 
 
 def _sigma_values(value: Any) -> tuple[float, ...]:
@@ -85,8 +85,6 @@ class PipelineConfig:
     compression_threads: int
     persistent_safety_reserve_gib: float
     scratch_safety_reserve_gib: float
-    crop_start: tuple[int, int, int]
-    crop_shape: tuple[int, int, int]
     divergence_relative_rms_max: float
     divergence_relative_max_max: float
     energy_identity_relative_rms_max: float
@@ -101,6 +99,7 @@ class PipelineConfig:
     sigma_grids: tuple[float, ...]
     filter_type: str
     sharp_edge_width_fraction: float
+    fft_cache_mode: str = "memory"
 
     @property
     def sharp_edge_tag(self) -> str:
@@ -126,9 +125,6 @@ class PipelineConfig:
         self.physical_time(time_index)
         return self.run_root / f"t{time_index:06d}"
 
-    def legacy_raw_store_path(self, time_index: int) -> Path:
-        return self.run_path(time_index) / "velocity_cache.zarr"
-
     def persistent_input_path(self, time_index: int) -> Path:
         self.physical_time(time_index)
         return self.state_root / "inputs" / f"t{time_index:06d}"
@@ -137,15 +133,11 @@ class PipelineConfig:
         return self.persistent_input_path(time_index) / "velocity_cache.zarr"
 
     def raw_store_path(self, time_index: int) -> Path:
-        persistent = self.persistent_raw_store_path(time_index)
-        legacy = self.legacy_raw_store_path(time_index)
-        if persistent.is_dir() or not legacy.is_dir():
-            return persistent
-        return legacy
+        return self.persistent_raw_store_path(time_index)
 
     def strain_store_path(self, time_index: int) -> Path:
         """Per-frame, filter-independent full-domain S_ij S_ij cache."""
-        return self.persistent_input_path(time_index) / "strain_cache.zarr"
+        return Path(__file__).resolve().parents[2] / "block_statistics" / "cache" / f"t{time_index:06d}" / "strain_cache.zarr"
 
     def workspace_path(self, time_index: int, sigma_grid: float | None = None) -> Path:
         sigma = self.sigma_grid if sigma_grid is None else sigma_grid
@@ -184,29 +176,14 @@ class PipelineConfig:
 
     def shared_result_path(self, time_index: int) -> Path:
         self.physical_time(time_index)
-        return self.result_root / f"t{time_index:06d}_shared"
+        return self.result_root / f"t{time_index:06d}_shared_full"
 
     def shared_staging_result_path(self, time_index: int) -> Path:
         self.physical_time(time_index)
-        return self.result_root / ".staging" / f"t{time_index:06d}_shared"
+        return self.result_root / ".staging" / f"t{time_index:06d}_shared_full"
 
-    def shared_center_store_path(self, time_index: int) -> Path:
-        return self.shared_result_path(time_index) / "center_raw.zarr"
-
-    @property
-    def crop_slices_zyx(self) -> tuple[slice, slice, slice]:
-        x0, y0, z0 = self.crop_start
-        nx, ny, nz = self.crop_shape
-        return (
-            slice(z0, z0 + nz),
-            slice(y0, y0 + ny),
-            slice(x0, x0 + nx),
-        )
-
-    @property
-    def result_shape_zyx(self) -> tuple[int, int, int]:
-        nx, ny, nz = self.crop_shape
-        return nz, ny, nx
+    def shared_gradient_store_path(self, time_index: int) -> Path:
+        return self.shared_result_path(time_index) / "full_raw.zarr"
 
     @property
     def full_shape_zyx(self) -> tuple[int, int, int]:
@@ -220,17 +197,13 @@ class PipelineConfig:
 
     @property
     def result_uncompressed_bytes(self) -> int:
-        center_points = int(self.crop_shape[0] * self.crop_shape[1] * self.crop_shape[2])
-        full_points = int(self.grid_shape[0] * self.grid_shape[1] * self.grid_shape[2])
-        # Per-sigma v6 results retain only sigma-dependent center fields.
-        center_fields = center_points * (3 + 9) * 4
-        full_fields = full_points * (4 * 4 + 1)
-        return center_fields + full_fields
+        points = math.prod(self.grid_shape)
+        # Filtered velocity (3), filtered gradient (9), four scalars and regime.
+        return points * ((3 + 9 + 4) * 4 + 1)
 
     @property
-    def shared_center_uncompressed_bytes(self) -> int:
-        center_points = int(self.crop_shape[0] * self.crop_shape[1] * self.crop_shape[2])
-        return center_points * 9 * 4
+    def shared_gradient_uncompressed_bytes(self) -> int:
+        return math.prod(self.grid_shape) * 9 * 4
 
     def physical_time(self, time_index: int) -> float:
         if time_index < 1:
@@ -289,11 +262,6 @@ class PipelineConfig:
             raise ValueError("compression_threads must be positive")
         if self.persistent_safety_reserve_gib < 0 or self.scratch_safety_reserve_gib < 0:
             raise ValueError("storage safety reserves cannot be negative")
-        for start, size, full in zip(self.crop_start, self.crop_shape, self.grid_shape):
-            if start < 0 or start + size > full:
-                raise ValueError("crop lies outside the complete periodic grid")
-        if self.crop_start != (256, 256, 256) or self.crop_shape != (512, 512, 512):
-            raise ValueError("the production crop must be [256:768)^3")
         if self.divergence_relative_rms_max <= 0 or self.divergence_relative_max_max <= 0:
             raise ValueError("divergence tolerances must be positive")
         if (
@@ -312,6 +280,8 @@ class PipelineConfig:
             or self.epsilon_rel < 0
         ):
             raise ValueError("physics parameters are invalid")
+        if self.fft_cache_mode not in ("memory", "memmap"):
+            raise ValueError("fft_cache_mode must be memory or memmap")
         if self.fft_workers < 1 or self.fft_slab_width < 1:
             raise ValueError("fft_workers and fft_slab_width must be positive")
         if self.filter_type not in FILTER_TYPES:
@@ -346,7 +316,7 @@ def load_config(path: str | Path) -> PipelineConfig:
     _reject_unknown(jhtdb, {"request_shape", "tile_shape", "retries", "backoff_seconds", "request_cooldown_seconds"}, "jhtdb")
     _reject_unknown(storage, {"compression_level", "compression_threads", "persistent_safety_reserve_gib", "scratch_safety_reserve_gib"}, "storage")
     _reject_unknown(validation, {"divergence_relative_rms_max", "divergence_relative_max_max", "energy_identity_relative_rms_max", "s_bar_vs_pi_net_max", "cq_partition_relative_max"}, "validation")
-    _reject_unknown(physics, {"sigma_grid", "filter_type", "sharp_edge_width_fraction", "crop_start", "crop_shape", "epsilon_abs", "epsilon_rel", "fft_workers", "fft_slab_width", "cleanup_scratch_on_success"}, "physics")
+    _reject_unknown(physics, {"sigma_grid", "filter_type", "sharp_edge_width_fraction", "epsilon_abs", "epsilon_rel", "fft_workers", "fft_slab_width", "fft_cache_mode", "cleanup_scratch_on_success"}, "physics")
 
     token_value = auth.get("token_file")
     sigma_grids = _sigma_values(physics.get("sigma_grid", 1.0))
@@ -369,8 +339,6 @@ def load_config(path: str | Path) -> PipelineConfig:
         compression_threads=int(storage.get("compression_threads", 8)),
         persistent_safety_reserve_gib=float(storage.get("persistent_safety_reserve_gib", 15.0)),
         scratch_safety_reserve_gib=float(storage.get("scratch_safety_reserve_gib", 16.0)),
-        crop_start=_tuple3(physics.get("crop_start", [256, 256, 256]), "physics.crop_start"),
-        crop_shape=_tuple3(physics.get("crop_shape", [512, 512, 512]), "physics.crop_shape"),
         divergence_relative_rms_max=float(validation.get("divergence_relative_rms_max", 1.0e-4)),
         divergence_relative_max_max=float(validation.get("divergence_relative_max_max", 1.0e-3)),
         energy_identity_relative_rms_max=float(validation.get("energy_identity_relative_rms_max", 1.0e-4)),
@@ -379,6 +347,7 @@ def load_config(path: str | Path) -> PipelineConfig:
         sigma_grid=sigma_grids[0],
         epsilon_abs=float(physics.get("epsilon_abs", 0.0)),
         epsilon_rel=float(physics.get("epsilon_rel", 0.001)),
+        fft_cache_mode=str(physics.get("fft_cache_mode", "memory")),
         fft_workers=int(physics.get("fft_workers", 16)),
         fft_slab_width=int(physics.get("fft_slab_width", 32)),
         cleanup_scratch_on_success=bool(physics.get("cleanup_scratch_on_success", True)),

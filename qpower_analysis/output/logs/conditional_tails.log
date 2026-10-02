@@ -1,0 +1,19 @@
+Pass 1: full-grid quantile histograms
+  64/512 blocks
+  128/512 blocks
+  192/512 blocks
+  256/512 blocks
+  320/512 blocks
+  384/512 blocks
+  448/512 blocks
+  512/512 blocks
+Pass 2: both conditional directions, including all tails
+  64/512 blocks
+  128/512 blocks
+  192/512 blocks
+  256/512 blocks
+  320/512 blocks
+  384/512 blocks
+  448/512 blocks
+  512/512 blocks
+Completed: qpower_analysis/output/20261001T044629Z/conditional_tails

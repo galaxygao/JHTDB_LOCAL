@@ -1,0 +1,48 @@
+{
+  "frames": [
+    {
+      "frame": 1,
+      "time": 0.0,
+      "velocity_path": "/Users/xingqungao/Desktop/Sync_File/26FA/JHU_DATA/.local/state/inputs/t000001/velocity_cache.zarr",
+      "velocity_key": "velocity",
+      "pressure_path": null,
+      "pressure_key": "pressure",
+      "pressure_gradient_path": "/Users/xingqungao/Desktop/Sync_File/26FA/JHU_DATA/.local/state/inputs/t000001/pressure_gradient_fd4_cache.zarr",
+      "pressure_gradient_keys": [
+        "pressure_gradient"
+      ]
+    }
+  ],
+  "axis_order": "zyx",
+  "domain_lengths_xyz": [
+    6.283185307179586,
+    6.283185307179586,
+    6.283185307179586
+  ],
+  "periodic_xyz": [
+    true,
+    true,
+    true
+  ],
+  "gradient_method": "spectral",
+  "pressure_definition": "P = p/rho",
+  "alphas": [
+    1.0,
+    2.0,
+    3.0,
+    4.0
+  ],
+  "betas": [
+    1.0,
+    1.5,
+    2.0,
+    3.0
+  ],
+  "event_mode": "positive",
+  "n_conditional_bins": 60,
+  "min_bin_count": 100,
+  "conditional_percentile": 99.9,
+  "overlay_pairs": null,
+  "visualization_stride": 8,
+  "output_root": "/Users/xingqungao/Desktop/Sync_File/26FA/JHU_DATA/qpower_analysis/output"
+}

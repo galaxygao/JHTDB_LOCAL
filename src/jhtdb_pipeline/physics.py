@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mmap
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -88,17 +89,6 @@ def regime_codes_from_thresholds(
     return codes
 
 
-def legacy_regime_codes(codes: np.ndarray) -> np.ndarray:
-    """Aggregate v6 codes back to the legacy uncertain/Q1/Q2/Q3/Q4 layout."""
-    values = np.asarray(codes, dtype=np.uint8)
-    legacy = np.zeros(values.shape, dtype=np.uint8)
-    legacy[(values == 1) | (values == 2)] = 1
-    legacy[values == 3] = 2
-    legacy[values == 4] = 3
-    legacy[(values == 5) | (values == 6)] = 4
-    return legacy
-
-
 class ComponentView:
     def __init__(self, parent: Any, component: int):
         self.parent = parent
@@ -178,6 +168,9 @@ def transform_axis(
         destination[key] = fft.irfft(
             spectrum, n=n, axis=axis, workers=workers
         ).astype(np.float32)
+
+    release_pages(destination)
+    release_pages(source)
 
 
 def axis2_spectrum(
@@ -387,6 +380,8 @@ def zero_field(field: Any, slab: int) -> None:
     for start in range(0, field.shape[0], slab):
         field[start : min(start + slab, field.shape[0]), :, :] = 0.0
 
+    release_pages(field)
+
 
 def accumulate_product(
     destination: Any,
@@ -401,6 +396,10 @@ def accumulate_product(
             right[key], dtype=np.float32
         )
         destination[key] = values
+
+    release_pages(destination)
+    release_pages(left)
+    release_pages(right)
 
 
 def subtract_product(
@@ -417,6 +416,10 @@ def subtract_product(
         )
         destination[key] = values
 
+    release_pages(destination)
+    release_pages(left)
+    release_pages(right)
+
 
 def memmap(path: Path, shape: tuple[int, ...], mode: str = "w+") -> np.memmap:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,3 +431,17 @@ def close_memmap(mapped: np.memmap) -> None:
     memory_map = getattr(mapped, "_mmap", None)
     if memory_map is not None:
         memory_map.close()
+
+
+def release_pages(array: Any) -> None:
+    """Release mapped working sets after a streaming pass; never discard dirty data."""
+    while hasattr(array, "parent"):
+        array = array.parent
+    if isinstance(array, np.memmap):
+        array.flush()
+        mapping = array._mmap
+        if hasattr(mapping, "madvise") and hasattr(mmap, "MADV_DONTNEED"):
+            try:
+                mapping.madvise(mmap.MADV_DONTNEED)
+            except OSError:
+                pass

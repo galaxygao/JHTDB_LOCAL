@@ -17,7 +17,7 @@ SijSij = sum_ij S[i,j] * S[i,j]
 脚本直接读取共享的完整原场速度缓存 `velocity`，用周期谱导数逐项累计 `SijSij`；
 这里的速度不经过滤波。`Pi` 等正式结果本身的定义不变。
 
-完整域 `SijSij` 按帧保存在 persistent input 目录下的 `strain_cache.zarr`。缓存记录原速度
+完整域 `SijSij` 按帧保存在本子项目 `cache/tNNNNNN/strain_cache.zarr`；临时数组位于 `.scratch/tNNNNNN/`。已有 state 下的旧 strain 缓存保留，本入口会在新位置重新建立缓存。实现位于 `strain.py`，主库 `jhtdb_pipeline.strain` 仅保留兼容导出。缓存记录原速度
 manifest hash、定义、帧号和完成状态；同一帧的所有 filter/sigma 共用这一份数据。第一次运行
 该帧的 block 统计时执行 9 次谱导数并创建缓存，后续 sigma 只读取缓存并进行 block 聚合。
 
@@ -138,3 +138,9 @@ regime 更强；$A<0$ 表示右侧 regime 更强；$\lvert A\rvert$ 越大表示
 - `regime_pair_pi_asymmetry_vs_sij_sij.html`：Q1/Q4、Q2/Q3 分别针对
   backscatter、forward、total 的六面板二维散点图。横坐标为 block mean
   `SijSij`，纵坐标为对应的 `A`，完整绘制所有 block，不抽样。
+
+## 代码与验证导航
+
+所有运行命令从项目根目录执行。完整参数见 [CLI 参考](../docs/cli_reference.md)，所有函数与实现定位见 [本项目代码参考](CODE_REFERENCE.md)。测试：`python -m pytest block_statistics/tests -q`；解释器使用根 README 对应平台虚拟环境。返回 [项目 README](../README.md)。
+
+`--scratch-root` 当前是保留的兼容参数，统计函数并未使用它改变 strain 工作区；真实应变临时文件由 `strain.py` 固定置于本目录 `.scratch/tNNNNNN/`。

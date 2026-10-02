@@ -16,7 +16,6 @@ from jhtdb_pipeline.physics import (
     filter_smooth_sharp_field,
     full_spectrum,
     memmap,
-    legacy_regime_codes,
     regime_codes,
     spectral_derivative,
     spectral_gaussian,
@@ -44,9 +43,6 @@ class PhysicsTests(unittest.TestCase):
         resolved = np.asarray([2.0, 3.0, -2.0, 2.0, -3.0, -2.0, 1.0])
         codes, _, _ = regime_codes(full, resolved, 0.1, 0.0)
         np.testing.assert_array_equal(codes, [1, 2, 3, 4, 5, 6, 0])
-        np.testing.assert_array_equal(
-            legacy_regime_codes(codes), [1, 1, 2, 3, 4, 4, 0]
-        )
 
     def test_full_spectrum_matches_direct_three_dimensional_fft(self) -> None:
         rng = np.random.default_rng(14)

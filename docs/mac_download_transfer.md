@@ -1,5 +1,7 @@
 # Mac 下载，Windows 计算
 
+> 本页仅用于独立的服务端 `fd4noint` 梯度路径。当前 deploy 默认使用标量压力下载 + 本地 FD4，见 [部署说明](deployment.md)。通用跨机步骤见 [系统迁移](system_migration.md)。
+
 此流程只下载 isotropic1024coarse 第 1 帧（t=0）的压力梯度，方法仍为
 fd4noint。请求块仍是 128×128×64，串行下载。不会在 Mac 执行压力功率或多 sigma 计算。
 

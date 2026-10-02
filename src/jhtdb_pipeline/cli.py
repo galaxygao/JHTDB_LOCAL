@@ -14,18 +14,14 @@ from .cq import run_cq
 from .doctor import doctor
 from .jhtdb import fetch_snapshot, smoke
 from .input_fields import field_config
-from .migration import migrate_existing_result
 from .planning import plan
 from .regime_pi import run_regime_pi_statistics
 from .processing import (
-    backfill_full_fields,
-    backfill_full_regime,
     finalize_result,
     process_batch,
-    process_center,
+    process_full,
     resource_plan,
-    reuse_or_backfill_result,
-    upgrade_result,
+    reuse_complete_result,
 )
 from .sbar_qa import run_sbar_qa
 from .validation import validate_snapshot
@@ -83,18 +79,14 @@ def build_parser() -> argparse.ArgumentParser:
             _config(command)
 
     for name in (
-        "process-center",
+        "process-full",
         "process-batch",
         "finalize-result",
         "single-frame",
-        "upgrade-result",
-        "backfill-full-fields",
-        "backfill-full-regime",
         "compute-cq",
         "compute-weak-asymmetry",
         "compute-regime-pi",
         "qa-sbar",
-        "migrate-existing",
     ):
         command = commands.add_parser(name)
         _frame(command)
@@ -113,8 +105,6 @@ def build_parser() -> argparse.ArgumentParser:
                     else "process these sigma values in one shared-FFT batch"
                 ),
             )
-        if name == "migrate-existing":
-            command.add_argument("--reclaim-redundant", action="store_true")
 
     gui = commands.add_parser("gui", help="start the read-only server GUI")
     gui.add_argument("--port", type=int, default=8501)
@@ -203,7 +193,7 @@ def _run_single_frame(
     results: dict[float, Path] = {}
     pending = []
     for sigma in sigmas:
-        existing = reuse_or_backfill_result(cfg, time_index, sigma)
+        existing = reuse_complete_result(cfg, time_index, sigma)
         if existing is None:
             pending.append(sigma)
         else:
@@ -275,10 +265,10 @@ def main(argv: list[str] | None = None) -> int:
                     indent=2,
                 )
             )
-        elif args.command == "process-center":
+        elif args.command == "process-full":
             _print_paths(
                 [
-                    process_center(cfg, args.time_index, sigma)
+                    process_full(cfg, args.time_index, sigma)
                     for sigma in _selected_sigmas(cfg, args.sigma_grid)
                 ]
             )
@@ -286,27 +276,6 @@ def main(argv: list[str] | None = None) -> int:
             _print_paths(
                 [
                     finalize_result(cfg, args.time_index, sigma)
-                    for sigma in _selected_sigmas(cfg, args.sigma_grid)
-                ]
-            )
-        elif args.command == "upgrade-result":
-            _print_paths(
-                [
-                    upgrade_result(cfg, args.time_index, sigma)
-                    for sigma in _selected_sigmas(cfg, args.sigma_grid)
-                ]
-            )
-        elif args.command == "backfill-full-fields":
-            _print_paths(
-                [
-                    backfill_full_fields(cfg, args.time_index, sigma)
-                    for sigma in _selected_sigmas(cfg, args.sigma_grid)
-                ]
-            )
-        elif args.command == "backfill-full-regime":
-            _print_paths(
-                [
-                    backfill_full_regime(cfg, args.time_index, sigma)
                     for sigma in _selected_sigmas(cfg, args.sigma_grid)
                 ]
             )
@@ -362,26 +331,6 @@ def main(argv: list[str] | None = None) -> int:
                     run_regime_pi_statistics(cfg, args.time_index, sigma)
                     for sigma in sigmas
                 ]
-            )
-        elif args.command == "migrate-existing":
-            reports = [
-                migrate_existing_result(
-                    cfg,
-                    args.time_index,
-                    sigma,
-                    reclaim_redundant=args.reclaim_redundant,
-                )
-                for sigma in _selected_sigmas(cfg, args.sigma_grid)
-                if cfg.result_path(args.time_index, sigma).joinpath("COMPLETE").is_file()
-            ]
-            if not reports:
-                raise RuntimeError("no complete sigma results were found")
-            print(
-                json.dumps(
-                    reports[0] if len(reports) == 1 else reports,
-                    ensure_ascii=False,
-                    indent=2,
-                )
             )
         elif args.command == "process-batch":
             if args.sigma_grid is not None and args.sigma_grids:

@@ -75,3 +75,7 @@ LES 符号时添加 `--sign-convention les`，此时图中显示
 `--view-azimuth` 可调整静态三维视角。静态图默认使用 `--projection orthographic`，并保持
 x/y/z 三轴严格 `1:1:1`，所以各平面相同的网格范围不会因透视而显得大小不同；需要透视
 缩短效果时可改为 `--projection perspective`。
+
+## 代码与验证导航
+
+所有运行命令从项目根目录执行。完整参数见 [CLI 参考](../docs/cli_reference.md)，所有函数与实现定位见 [本项目代码参考](CODE_REFERENCE.md)。测试：`python -m pytest pi_slices/tests -q`；解释器使用根 README 对应平台虚拟环境。返回 [项目 README](../README.md)。

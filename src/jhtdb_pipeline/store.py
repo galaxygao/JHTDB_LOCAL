@@ -10,7 +10,7 @@ import zarr
 from numcodecs import Blosc
 from numcodecs import blosc
 
-from .config import PipelineConfig, result_zarr_name
+from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
 from .planning import Tile
 
 
@@ -105,7 +105,7 @@ def create_result_group(
     staging.mkdir(parents=True, exist_ok=True)
     path = staging / result_zarr_name(sigma_grid)
     root = zarr.open_group(str(path), mode="w" if overwrite else "a")
-    nz, ny, nx = cfg.result_shape_zyx
+    nz, ny, nx = cfg.full_shape_zyx
     full_nz, full_ny, full_nx = cfg.full_shape_zyx
     cz, cy, cx = (min(64, nz), min(64, ny), min(64, nx))
     full_chunks = (
@@ -133,14 +133,12 @@ def create_result_group(
             ],
             "components": ["ux", "uy", "uz"],
             "derivative_components": ["x", "y", "z"],
-            "crop_start_xyz": list(cfg.crop_start),
-            "crop_shape_xyz": list(cfg.crop_shape),
             "full_shape_xyz": list(cfg.grid_shape),
             "field_scopes": {
-                "velocity": "shared_center_crop",
-                "gradient": "shared_center_crop",
-                "velocity_bar": "center_crop",
-                "gradient_bar": "center_crop",
+                "velocity": "full_domain",
+                "gradient": "full_domain",
+                "velocity_bar": "full_domain",
+                "gradient_bar": "full_domain",
                 "regime": "full_domain",
                 "work_full": "full_domain",
                 "work_resolved": "full_domain",
@@ -171,7 +169,7 @@ def create_result_group(
     return root
 
 
-def create_shared_center_group(
+def create_shared_gradient_group(
     cfg: PipelineConfig,
     time_index: int,
     *,
@@ -184,9 +182,9 @@ def create_shared_center_group(
         else cfg.shared_result_path(time_index)
     )
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "center_raw.zarr"
+    path = directory / "full_raw.zarr"
     root = zarr.open_group(str(path), mode="w" if overwrite else "a")
-    nz, ny, nx = cfg.result_shape_zyx
+    nz, ny, nx = cfg.full_shape_zyx
     chunks = (1, 1, min(64, nz), min(64, ny), min(64, nx))
     root.attrs.update(
         {
@@ -194,8 +192,8 @@ def create_shared_center_group(
             "dataset": cfg.dataset,
             "time_index": time_index,
             "physical_time": cfg.physical_time(time_index),
-            "crop_start_xyz": list(cfg.crop_start),
-            "crop_shape_xyz": list(cfg.crop_shape),
+            "full_shape_xyz": list(cfg.grid_shape),
+            "field_scopes": {"gradient": "full_domain"},
             "gradient_axis_order": [
                 "velocity_component", "derivative_component", "z", "y", "x"
             ],
@@ -210,64 +208,6 @@ def create_shared_center_group(
         fill_value=np.nan,
     )
     return root
-
-
-class SpatialCropView:
-    """Lazy center-crop view over an array whose final three axes are z, y, x."""
-
-    def __init__(self, parent: Any, crop_slices_zyx: tuple[slice, slice, slice]):
-        self.parent = parent
-        self.crop_slices_zyx = crop_slices_zyx
-        prefix = tuple(int(value) for value in parent.shape[:-3])
-        spatial = tuple(item.stop - item.start for item in crop_slices_zyx)
-        self.shape = prefix + spatial
-        self.dtype = parent.dtype
-        parent_chunks = tuple(int(value) for value in parent.chunks)
-        self.chunks = parent_chunks[:-3] + tuple(
-            min(chunk, size) for chunk, size in zip(parent_chunks[-3:], spatial)
-        )
-
-    @staticmethod
-    def _normalize_item(item: Any, rank: int) -> tuple[Any, ...]:
-        if not isinstance(item, tuple):
-            item = (item,)
-        if item.count(Ellipsis) > 1:
-            raise IndexError("an index can only have a single ellipsis")
-        if Ellipsis in item:
-            position = item.index(Ellipsis)
-            missing = rank - (len(item) - 1)
-            item = item[:position] + (slice(None),) * missing + item[position + 1 :]
-        if len(item) > rank:
-            raise IndexError("too many indices")
-        return item + (slice(None),) * (rank - len(item))
-
-    @staticmethod
-    def _translate(index: Any, start: int, size: int) -> Any:
-        if isinstance(index, (int, np.integer)):
-            value = int(index)
-            if value < 0:
-                value += size
-            if value < 0 or value >= size:
-                raise IndexError("crop index is out of bounds")
-            return start + value
-        if isinstance(index, slice):
-            relative_start, relative_stop, step = index.indices(size)
-            return slice(start + relative_start, start + relative_stop, step)
-        raise IndexError("only integer, slice and ellipsis indexing is supported")
-
-    def __getitem__(self, item: Any) -> np.ndarray:
-        normalized = self._normalize_item(item, len(self.shape))
-        prefix_count = len(self.shape) - 3
-        translated = list(normalized[:prefix_count])
-        for index, crop, size in zip(
-            normalized[prefix_count:], self.crop_slices_zyx, self.shape[-3:]
-        ):
-            translated.append(self._translate(index, int(crop.start), int(size)))
-        return self.parent[tuple(translated)]
-
-    def __array__(self, dtype: Any = None) -> np.ndarray:
-        values = np.asarray(self[:])
-        return values.astype(dtype, copy=False) if dtype is not None else values
 
 
 class CompositeResult:
@@ -330,50 +270,34 @@ def hash_zarr_array(array: Any) -> tuple[str, int, float, float]:
 def open_complete_result(path: Path):
     if not (path / "COMPLETE").is_file():
         raise RuntimeError(f"result is not complete: {path}")
-    manifest_path = path / "manifest.json"
-    zarr_path = path / "center_result.zarr"
-    if manifest_path.is_file():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        sigma_grid = manifest.get("sigma_grid")
-        if sigma_grid is not None:
-            named_path = path / result_zarr_name(float(sigma_grid))
-            if named_path.is_dir():
-                zarr_path = named_path
-    root = zarr.open_group(str(zarr_path), mode="r")
-    if root.attrs.get("status") != "complete":
-        raise RuntimeError(f"result metadata is incomplete: {path}")
-    references_path = path / "shared_refs.json"
-    if not references_path.is_file():
-        return root
-    references = json.loads(references_path.read_text(encoding="utf-8"))
-    raw_path = Path(references["velocity_store"])
-    shared_path = Path(references["shared_center_store"])
-    shared_complete = Path(references["shared_complete"])
-    if not shared_complete.is_file():
-        raise RuntimeError(f"shared center data is not complete: {shared_path}")
-    raw_root = zarr.open_group(str(raw_path), mode="r")
-    center_root = zarr.open_group(str(shared_path), mode="r")
+    manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("schema_version") != RESULT_SCHEMA_VERSION:
+        raise RuntimeError("result requires full-domain schema v7; rebuild from validated velocity")
+    root = zarr.open_group(str(path / result_zarr_name(float(manifest["sigma_grid"]))), mode="r")
+    if root.attrs.get("status") != "complete" or root.attrs.get("result_schema_version") != RESULT_SCHEMA_VERSION:
+        raise RuntimeError(f"result metadata is incomplete or outdated: {path}")
+    references = json.loads((path / "shared_refs.json").read_text(encoding="utf-8"))
+    shared_path = Path(references["shared_gradient_store"])
+    if not Path(references["shared_complete"]).is_file():
+        raise RuntimeError(f"shared full-domain data is not complete: {shared_path}")
+    raw_root = zarr.open_group(str(references["velocity_store"]), mode="r")
+    shared_root = zarr.open_group(str(shared_path), mode="r")
     reference_hash = references.get("input_manifest_hash")
     if (
         not reference_hash
         or root.attrs.get("input_manifest_hash") != reference_hash
         or raw_root.attrs.get("manifest_hash") != reference_hash
-        or center_root.attrs.get("input_manifest_hash") != reference_hash
+        or shared_root.attrs.get("input_manifest_hash") != reference_hash
+        or shared_root.attrs.get("status") != "complete"
+        or shared_root.attrs.get("result_schema_version") != RESULT_SCHEMA_VERSION
     ):
-        raise RuntimeError("result and shared inputs have different manifest hashes")
-    crop_start = tuple(int(value) for value in references["crop_start_xyz"])
-    crop_shape = tuple(int(value) for value in references["crop_shape_xyz"])
-    x0, y0, z0 = crop_start
-    nx, ny, nz = crop_shape
-    crop_zyx = (
-        slice(z0, z0 + nz),
-        slice(y0, y0 + ny),
-        slice(x0, x0 + nx),
-    )
-    return CompositeResult(
-        root,
-        {
-            "velocity": SpatialCropView(raw_root["velocity"], crop_zyx),
-            "gradient": center_root["gradient"],
-        },
-    )
+        raise RuntimeError("result and shared inputs have different or incomplete metadata")
+    result = CompositeResult(root, {"velocity": raw_root["velocity"], "gradient": shared_root["gradient"]})
+    shape = tuple(reversed(manifest["full_shape_xyz"]))
+    for name in ("velocity", "gradient", "velocity_bar", "gradient_bar", "work_full", "work_resolved", "pi", "s_bar", "regime"):
+        if name not in result:
+            raise RuntimeError(f"result field is missing: {name}")
+        prefix = (3, 3) if name in ("gradient", "gradient_bar") else (3,) if name in ("velocity", "velocity_bar") else ()
+        if tuple(result[name].shape) != prefix + shape:
+            raise RuntimeError(f"result field is not full-domain: {name}")
+    return result

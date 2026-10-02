@@ -87,3 +87,7 @@ PDF_2D = count / (N * dS_bar * dPi_LES)
 
 - `FeatureChunk.matrix()` 返回三个独立特征 `(W_full, S̄, Pi_LES)`。
 - `FeatureChunk.matrix_with_delta_w()` 返回 `(W_full, S̄, Pi_LES, delta W)`。
+
+## 代码与验证导航
+
+所有运行命令从项目根目录执行。完整参数见 [CLI 参考](../docs/cli_reference.md)，所有函数与实现定位见 [本项目代码参考](CODE_REFERENCE.md)。测试：`python -m pytest scatter/tests -q`；解释器使用根 README 对应平台虚拟环境。返回 [项目 README](../README.md)。

@@ -13,7 +13,7 @@ from filelock import FileLock
 
 from jhtdb_pipeline.config import FILTER_TYPES, PipelineConfig, load_config
 from jhtdb_pipeline.store import open_complete_result
-from jhtdb_pipeline.strain import STRAIN_CACHE_VERSION, ensure_strain_cache
+from block_statistics.strain import STRAIN_CACHE_VERSION, ensure_strain_cache
 
 
 FIELD_NAMES = ("work_resolved", "work_full", "pi")

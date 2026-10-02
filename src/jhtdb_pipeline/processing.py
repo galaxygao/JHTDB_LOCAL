@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from contextlib import nullcontext
+
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -14,6 +15,7 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
+from .disk_fft import build_spectrum, filter_spectrum, mapped_array, release_pages
 from .cq import compute_cq, ensure_cq_result, write_cq_artifacts
 from .physics import (
     ComponentView,
@@ -34,7 +36,7 @@ from .physics import (
 )
 from .store import (
     create_result_group,
-    create_shared_center_group,
+    create_shared_gradient_group,
     hash_zarr_array,
     open_complete_result,
 )
@@ -88,6 +90,25 @@ def _filter_with_optional_spectrum(
     spectra: dict[tuple[Any, ...], np.ndarray] | None,
     key: tuple[Any, ...],
 ) -> None:
+    if cfg.filter_type == "smooth_sharp" and cfg.fft_cache_mode == "memmap":
+        # temp_a is already a per-sigma disk workspace. Never allocate a full FFT in RAM.
+        directory = Path(temp_a.filename).parent
+        with TemporaryDirectory(prefix="fft-", dir=directory) as temporary:
+            scratch = Path(temporary)
+            cached = spectra.get(key) if spectra is not None else None
+            owned = cached is None
+            if owned:
+                cached = build_spectrum(source, scratch / "source.c64", cfg.fft_slab_width,
+                                        workers=cfg.fft_workers, full=True)
+            try:
+                filter_spectrum(cached, destination, scratch / "filtered.c64", sigma,
+                                cfg.domain_length, cfg.sharp_edge_width_fraction,
+                                cfg.fft_slab_width, workers=cfg.fft_workers)
+            finally:
+                release_pages(cached)
+                if owned:
+                    close_memmap(cached)
+        return
     if cfg.filter_type == "smooth_sharp":
         if spectra is not None and key in spectra:
             filter_smooth_sharp_from_spectrum(
@@ -158,11 +179,12 @@ def _complete_result_is_current(
         root = open_complete_result(path)
         return (
             _filter_metadata_matches(root.attrs, cfg, sigma_grid)
+            and root.attrs.get("input_manifest_hash") == input_manifest_hash(cfg, int(root.attrs["time_index"]))
             and
-            tuple(root["velocity"].shape) == (3, *cfg.result_shape_zyx)
-            and tuple(root["gradient"].shape) == (3, 3, *cfg.result_shape_zyx)
-            and tuple(root["velocity_bar"].shape) == (3, *cfg.result_shape_zyx)
-            and tuple(root["gradient_bar"].shape) == (3, 3, *cfg.result_shape_zyx)
+            tuple(root["velocity"].shape) == (3, *cfg.full_shape_zyx)
+            and tuple(root["gradient"].shape) == (3, 3, *cfg.full_shape_zyx)
+            and tuple(root["velocity_bar"].shape) == (3, *cfg.full_shape_zyx)
+            and tuple(root["gradient_bar"].shape) == (3, 3, *cfg.full_shape_zyx)
             and all(
                 tuple(root[name].shape) == cfg.full_shape_zyx
                 for name in ("work_full", "work_resolved", "pi", "s_bar", "regime")
@@ -178,19 +200,20 @@ def _shared_result_is_current(
     directory = cfg.shared_result_path(time_index)
     manifest_path = directory / "shared_manifest.json"
     complete_path = directory / "COMPLETE"
-    store_path = directory / "center_raw.zarr"
+    store_path = directory / "full_raw.zarr"
     if not manifest_path.is_file() or not complete_path.is_file() or not store_path.is_dir():
         return False
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         root = zarr.open_group(str(store_path), mode="r")
         return (
-            manifest.get("status") == "complete"
+            manifest.get("schema_version") == RESULT_SCHEMA_VERSION
+            and manifest.get("status") == "complete"
             and manifest.get("input_manifest_hash") == manifest_hash
             and root.attrs.get("status") == "complete"
             and root.attrs.get("input_manifest_hash") == manifest_hash
             and tuple(root["gradient"].shape)
-            == (3, 3, *cfg.result_shape_zyx)
+            == (3, 3, *cfg.full_shape_zyx)
             and np.dtype(root["gradient"].dtype) == np.dtype("<f4")
         )
     except Exception:
@@ -202,12 +225,12 @@ def _prepare_shared_gradient(
 ) -> tuple[Any, bool]:
     if _shared_result_is_current(cfg, time_index, manifest_hash):
         return (
-            zarr.open_group(str(cfg.shared_center_store_path(time_index)), mode="r"),
+            zarr.open_group(str(cfg.shared_gradient_store_path(time_index)), mode="r"),
             False,
         )
     staging = cfg.shared_staging_result_path(time_index)
     _safe_rmtree(staging, cfg.result_root / ".staging")
-    root = create_shared_center_group(
+    root = create_shared_gradient_group(
         cfg, time_index, staging=True, overwrite=True
     )
     root.attrs["input_manifest_hash"] = manifest_hash
@@ -231,8 +254,7 @@ def _finalize_shared_gradient(
         "time_index": time_index,
         "physical_time": cfg.physical_time(time_index),
         "input_manifest_hash": manifest_hash,
-        "crop_start_xyz": list(cfg.crop_start),
-        "crop_shape_xyz": list(cfg.crop_shape),
+        "full_shape_xyz": list(cfg.grid_shape),
         "fields": {
             "gradient": {
                 "shape": list(gradient.shape),
@@ -275,10 +297,10 @@ def _shared_references(
         "time_index": time_index,
         "input_manifest_hash": manifest_hash,
         "velocity_store": str(cfg.raw_store_path(time_index).resolve()),
-        "shared_center_store": str(cfg.shared_center_store_path(time_index).resolve()),
+        "shared_gradient_store": str(cfg.shared_gradient_store_path(time_index).resolve()),
         "shared_complete": str((cfg.shared_result_path(time_index) / "COMPLETE").resolve()),
-        "crop_start_xyz": list(cfg.crop_start),
-        "crop_shape_xyz": list(cfg.crop_shape),
+
+
     }
 
 
@@ -302,31 +324,24 @@ def _spatial_keys(shape: tuple[int, int, int], chunks: tuple[int, int, int]) -> 
                 )
 
 
-def _source_key(cfg: PipelineConfig, relative: tuple[slice, slice, slice]) -> tuple[slice, slice, slice]:
-    x0, y0, z0 = cfg.crop_start
-    return (
-        slice(z0 + relative[0].start, z0 + relative[0].stop),
-        slice(y0 + relative[1].start, y0 + relative[1].stop),
-        slice(x0 + relative[2].start, x0 + relative[2].stop),
-    )
-
-
-def _copy_crop(
+def _copy_field(
     cfg: PipelineConfig,
     source: Any,
     destination: Any,
     prefix: tuple[int, ...] = (),
 ) -> None:
-    shape = cfg.result_shape_zyx
+    shape = cfg.full_shape_zyx
     chunks = tuple(int(value) for value in destination.chunks[-3:])
     for relative in _spatial_keys(shape, chunks):
-        values = np.ascontiguousarray(source[_source_key(cfg, relative)], dtype="<f4")
+        values = np.ascontiguousarray(source[relative], dtype="<f4")
         if not np.all(np.isfinite(values)):
-            raise ValueError("center crop contains NaN or Inf")
+            raise ValueError("full field contains NaN or Inf")
         destination[prefix + relative] = values
         readback = np.asarray(destination[prefix + relative], dtype="<f4")
         if not np.array_equal(values, readback):
-            raise IOError("persistent center field failed write/read verification")
+            raise IOError("persistent full field failed write/read verification")
+
+    release_pages(source)
 
 
 def _zero_zarr(array: Any) -> None:
@@ -391,6 +406,7 @@ def _field_statistics(field: Any, slab: int) -> tuple[float, float, int]:
         sumsq += float(np.square(values, dtype=np.float64).sum())
         maximum = max(maximum, float(np.max(np.abs(values))))
         count += values.size
+    release_pages(field)
     return sumsq, maximum, count
 
 
@@ -439,7 +455,8 @@ def _reusable_filtered_velocity(
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             trusted = (
-                metadata.get("status") == "complete"
+                metadata.get("schema_version") == RESULT_SCHEMA_VERSION
+                and metadata.get("status") == "complete"
                 and metadata.get("input_manifest_hash") == manifest_hash
                 and float(metadata.get("sigma_grid")) == sigma
                 and _filter_metadata_matches(metadata, cfg, sigma)
@@ -455,66 +472,8 @@ def _reusable_filtered_velocity(
             )
         return mapped
 
-    previous = cfg.result_path(time_index, sigma)
-    previous_zarr = previous / result_zarr_name(sigma)
-    if not (previous / "COMPLETE").is_file() or not previous_zarr.is_dir():
-        close_memmap(mapped)
-        return None
-    try:
-        root = zarr.open_group(str(previous_zarr), mode="r")
-        stored = root["velocity_bar"]
-        if tuple(stored.shape) != (3, *cfg.result_shape_zyx):
-            close_memmap(mapped)
-            return None
-        chunks = tuple(int(value) for value in stored.chunks[-3:])
-        for component in range(3):
-            for relative in _spatial_keys(cfg.result_shape_zyx, chunks):
-                old = np.asarray(stored[(component,) + relative], dtype=np.float32)
-                candidate = np.asarray(
-                    mapped[(component,) + _source_key(cfg, relative)],
-                    dtype=np.float32,
-                )
-                if not np.allclose(old, candidate, rtol=2.0e-5, atol=2.0e-6):
-                    close_memmap(mapped)
-                    return None
-    except Exception:
-        close_memmap(mapped)
-        return None
-    return mapped
-
-
-def _validate_previous_center_overlap(
-    cfg: PipelineConfig,
-    sigma: float,
-    previous: Path,
-    current: Any,
-) -> dict[str, Any] | None:
-    previous_zarr = previous / result_zarr_name(sigma)
-    if not (previous / "COMPLETE").is_file() or not previous_zarr.is_dir():
-        return None
-    old = zarr.open_group(str(previous_zarr), mode="r")
-    if any(name not in old for name in ("work_full", "work_resolved", "pi", "s_bar")):
-        return None
-    if any(tuple(old[name].shape) != cfg.result_shape_zyx for name in ("work_full", "work_resolved", "pi", "s_bar")):
-        return None
-    maximum = {name: 0.0 for name in ("work_full", "work_resolved", "pi", "s_bar")}
-    chunks = tuple(int(value) for value in old["work_full"].chunks)
-    for relative in _spatial_keys(cfg.result_shape_zyx, chunks):
-        source = _source_key(cfg, relative)
-        for name in maximum:
-            expected = np.asarray(old[name][relative], dtype=np.float32)
-            actual = np.asarray(current[name][source], dtype=np.float32)
-            difference = float(np.max(np.abs(expected - actual)))
-            maximum[name] = max(maximum[name], difference)
-            if not np.allclose(expected, actual, rtol=5.0e-5, atol=5.0e-6):
-                raise RuntimeError(
-                    f"current-schema center overlap differs from existing {name}"
-                )
-    return {
-        "passed": True,
-        "scope": "stored_center_crop",
-        "maximum_abs_difference": maximum,
-    }
+    close_memmap(mapped)
+    return None
 
 
 def _write_full_regime(
@@ -596,7 +555,6 @@ def _write_full_regime(
 
 def resource_plan(cfg: PipelineConfig) -> dict[str, float | str]:
     full_points = int(np.prod(cfg.grid_shape, dtype=np.int64))
-    center_points = int(np.prod(cfg.crop_shape, dtype=np.int64))
     scalar_bytes = full_points * 4
     raw_gradient_cache_bytes = 9 * scalar_bytes
     axis2_spectrum_bytes = (
@@ -609,59 +567,52 @@ def resource_plan(cfg: PipelineConfig) -> dict[str, float | str]:
     # filtered velocity (3) + SGS transport (3) + derivative + acceleration
     # + two filter buffers.
     workspace_bytes = 10 * scalar_bytes
-    legacy_result_bytes = center_points * 113
-    schema_v4_result_bytes = center_points * 97 + full_points * 16
+    mapped_cache_bytes = (raw_gradient_cache_bytes + axis2_spectrum_bytes
+                          if cfg.fft_cache_mode == "memmap" else 0)
+    mapped_extra_bytes = (2 * axis2_spectrum_bytes // 12 + scalar_bytes
+                          if cfg.fft_cache_mode == "memmap" else 0)
+    scratch_bytes = workspace_bytes + mapped_cache_bytes + mapped_extra_bytes
     batch_result_bytes = len(cfg.sigma_grids) * cfg.result_uncompressed_bytes
-    shared_center_bytes = cfg.shared_center_uncompressed_bytes
+    shared_gradient_bytes = cfg.shared_gradient_uncompressed_bytes
     batch_persistent_bytes = (
-        batch_result_bytes + shared_center_bytes + cfg.bytes_per_snapshot
+        batch_result_bytes + shared_gradient_bytes + cfg.bytes_per_snapshot
     )
     return {
         "filter_type": cfg.filter_type,
+        "fft_cache_mode": cfg.fft_cache_mode,
+        "memory_note": "Estimates exclude OS file cache, Python, Zarr, and QA; mapped files are reclaimable.",
+        "shared_cache_disk_GiB": ((raw_gradient_cache_bytes + axis2_spectrum_bytes) / 1024**3
+                                  if cfg.fft_cache_mode == "memmap" else 0.0),
+        "fft_slab_working_estimate_GiB": cfg.fft_slab_width * max(cfg.grid_shape)**2 * 64 / 1024**3,
         **_sharp_edge_metadata(cfg, cfg.sigma_grid),
         "velocity_cache_GiB": cfg.bytes_per_snapshot / 1024**3,
-        "shared_center_gradient_GiB": shared_center_bytes / 1024**3,
+        "shared_gradient_GiB": shared_gradient_bytes / 1024**3,
         "workspace_GiB": workspace_bytes / 1024**3,
-        "batch_raw_gradient_RAM_GiB": raw_gradient_cache_bytes / 1024**3,
-        "batch_first_axis_spectra_RAM_GiB": axis2_spectrum_bytes / 1024**3,
+        "batch_raw_gradient_RAM_GiB": raw_gradient_cache_bytes / 1024**3 if cfg.fft_cache_mode == "memory" else 0.0,
+        "batch_first_axis_spectra_RAM_GiB": axis2_spectrum_bytes / 1024**3 if cfg.fft_cache_mode == "memory" else 0.0,
         "batch_shared_RAM_GiB": (
             raw_gradient_cache_bytes + axis2_spectrum_bytes
         )
-        / 1024**3,
-        "batch_filter_peak_RAM_GiB": (
+        / 1024**3 if cfg.fft_cache_mode == "memory" else 0.0,
+        "batch_filter_working_estimate_GiB": (
             raw_gradient_cache_bytes
             + axis2_spectrum_bytes
             + (2 * scalar_bytes if cfg.filter_type == "smooth_sharp" else 0)
         )
-        / 1024**3,
-        "scratch_peak_GiB": (cfg.bytes_per_snapshot + workspace_bytes) / 1024**3,
+        / 1024**3 if cfg.fft_cache_mode == "memory" else cfg.fft_slab_width * max(cfg.grid_shape)**2 * 64 / 1024**3,
+        "scratch_peak_GiB": scratch_bytes / 1024**3,
         "result_GiB": cfg.result_uncompressed_bytes / 1024**3,
         "configured_sigma_count": len(cfg.sigma_grids),
         "batch_result_GiB": (
             batch_result_bytes / 1024**3
         ),
         "batch_persistent_GiB": batch_persistent_bytes / 1024**3,
-        "v3_result_GiB": legacy_result_bytes / 1024**3,
-        "v3_to_v5_peak_GiB": (
-            legacy_result_bytes + cfg.result_uncompressed_bytes
-        )
-        / 1024**3,
-        "v3_to_v6_peak_GiB": (
-            legacy_result_bytes
-            + cfg.result_uncompressed_bytes
-            + shared_center_bytes
-        )
-        / 1024**3,
-        "v4_regime_backfill_peak_GiB": (
-            schema_v4_result_bytes + full_points
-        )
-        / 1024**3,
         "batch_with_reserve_GiB": (
             batch_persistent_bytes / 1024**3
             + cfg.persistent_safety_reserve_gib
         ),
         "batch_peak_with_workspace_and_reserve_GiB": (
-            (batch_persistent_bytes + workspace_bytes) / 1024**3
+            (batch_persistent_bytes + scratch_bytes) / 1024**3
             + cfg.persistent_safety_reserve_gib
         ),
         "result_reserve_GiB": cfg.persistent_safety_reserve_gib,
@@ -677,10 +628,34 @@ def resource_plan(cfg: PipelineConfig) -> dict[str, float | str]:
     }
 
 
+def _preflight_batch_space(cfg: PipelineConfig, time_index: int, count: int) -> None:
+    cfg.result_root.mkdir(parents=True, exist_ok=True)
+    run = cfg.run_path(time_index)
+    run.mkdir(parents=True, exist_ok=True)
+    points = int(np.prod(cfg.grid_shape))
+    spectrum_bytes = cfg.full_shape_zyx[0] * cfg.full_shape_zyx[1] * (cfg.full_shape_zyx[2] // 2 + 1) * 8
+    output = count * cfg.result_uncompressed_bytes + cfg.shared_gradient_uncompressed_bytes
+    scratch = 10 * points * 4
+    if cfg.fft_cache_mode == "memmap":
+        # Gradients, twelve reusable spectra, acceleration and two FFT temporaries.
+        scratch += cfg.shared_gradient_uncompressed_bytes + 14 * spectrum_bytes + points * 4
+    output_reserve = int(cfg.persistent_safety_reserve_gib * 1024**3)
+    scratch_reserve = int(cfg.scratch_safety_reserve_gib * 1024**3)
+    if cfg.result_root.stat().st_dev == run.stat().st_dev:
+        requirements = [(run, output + scratch + max(output_reserve, scratch_reserve))]
+    else:
+        requirements = [(cfg.result_root, output + output_reserve), (run, scratch + scratch_reserve)]
+    for path, required in requirements:
+        free = shutil.disk_usage(path).free
+        if free < required:
+            raise RuntimeError(f"insufficient batch space on {path}: {free / 1024**3:.2f} GiB free, "
+                               f"need {required / 1024**3:.2f} GiB including shared cache and reserve")
+
+
 def _preflight_result_space(cfg: PipelineConfig) -> dict[str, float]:
     cfg.result_root.mkdir(parents=True, exist_ok=True)
     usage = shutil.disk_usage(cfg.result_root)
-    required = cfg.result_uncompressed_bytes + int(
+    required = cfg.result_uncompressed_bytes + cfg.shared_gradient_uncompressed_bytes + int(
         cfg.persistent_safety_reserve_gib * 1024**3
     )
     if usage.free < required:
@@ -701,6 +676,8 @@ def _preflight_workspace_space(cfg: PipelineConfig, time_index: int) -> None:
     usage = shutil.disk_usage(path)
     full_points = int(np.prod(cfg.grid_shape, dtype=np.int64))
     workspace_bytes = 10 * full_points * 4
+    if cfg.fft_cache_mode == "memmap":
+        workspace_bytes += 2 * full_points * 4 + 2 * cfg.grid_shape[0] * cfg.grid_shape[1] * 8
     required = workspace_bytes + int(cfg.scratch_safety_reserve_gib * 1024**3)
     if usage.free < required:
         raise RuntimeError(
@@ -709,7 +686,7 @@ def _preflight_workspace_space(cfg: PipelineConfig, time_index: int) -> None:
         )
 
 
-def process_center(
+def process_full(
     cfg: PipelineConfig,
     time_index: int,
     sigma_grid: float | None = None,
@@ -718,11 +695,17 @@ def process_center(
     _filter_spectra: dict[tuple[Any, ...], np.ndarray] | None = None,
     _acquire_lock: bool = True,
 ) -> Path:
+    if _acquire_lock:
+        cfg.lock_path.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(cfg.lock_path / "process.lock"), timeout=0):
+            return process_full(cfg, time_index, sigma_grid,
+                                _raw_gradients=_raw_gradients, _filter_spectra=_filter_spectra,
+                                _acquire_lock=False)
     sigma = cfg.sigma_grid if sigma_grid is None else float(sigma_grid)
     if sigma <= 0:
         raise ValueError("sigma_grid must be positive")
     final = cfg.result_path(time_index, sigma)
-    existing = reuse_or_backfill_result(cfg, time_index, sigma)
+    existing = reuse_complete_result(cfg, time_index, sigma)
     if existing is not None:
         return existing
     manifest_hash = input_manifest_hash(cfg, time_index)
@@ -752,7 +735,7 @@ def process_center(
         {
             "input_manifest_hash": manifest_hash,
             "result_schema_version": RESULT_SCHEMA_VERSION,
-            "algorithm": f"full_periodic_{cfg.filter_type}_spectral_pi_sbar_regime_v6",
+            "algorithm": f"full_periodic_{cfg.filter_type}_spectral_pi_sbar_regime_v7",
             "filter_type": cfg.filter_type,
             "filter_cutoff_definition": (
                 None
@@ -776,7 +759,6 @@ def process_center(
     temp_b = memmap(workspace / "filter_b.f32", full_shape)
     sgs_transport = memmap(workspace / "sgs_transport.f32", expected)
     cfg.lock_path.mkdir(parents=True, exist_ok=True)
-    lock = FileLock(str(cfg.lock_path / "process-center.lock"), timeout=0)
     console = Console()
     gradient_sumsq = 0.0
     gradient_maximum = 0.0
@@ -785,122 +767,66 @@ def process_center(
     filtered_gradient_maximum = 0.0
     filtered_gradient_count = 0
 
-    lock_context = lock if _acquire_lock else nullcontext()
-    with lock_context:
-        shared_root, write_shared_gradient = _prepare_shared_gradient(
-            cfg, time_index, manifest_hash
-        )
-        with Progress(
-            SpinnerColumn("line"),
-            TextColumn("{task.description}"),
-            BarColumn(),
-            "{task.completed}/{task.total}",
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("periodic spectral pipeline", total=39)
-            for component in range(3):
-                if not reused_filtered_velocity:
-                    _filter_with_optional_spectrum(
-                        ComponentView(raw, component),
-                        ComponentView(filtered_velocity, component),
-                        temp_a,
-                        temp_b,
-                        sigma,
-                        cfg,
-                        _filter_spectra,
-                        ("velocity", component),
-                    )
-                filtered_velocity.flush()
-                _copy_crop(
-                    cfg,
-                    ComponentView(filtered_velocity, component),
-                    result["velocity_bar"],
-                    (component,),
-                )
-                progress.advance(task)
-
-            atomic_json(
-                workspace / "filtered_velocity.json",
-                {
-                    "status": "complete",
-                    "input_manifest_hash": manifest_hash,
-                    "sigma_grid": sigma,
-                    "filter_type": cfg.filter_type,
-                    **_sharp_edge_metadata(cfg, sigma),
-                    "shape": list(expected),
-                    "reused": reused_filtered_velocity,
-                },
-            )
-
-            _zero_zarr(result["work_full"])
-            _zero_zarr(result["work_resolved"])
-            _zero_zarr(result["pi"])
-            _zero_zarr(result["s_bar"])
-            filtered_divergence = ComponentView(sgs_transport, 0)
-            zero_field(filtered_divergence, cfg.fft_slab_width)
-
-            for component in range(3):
-                zero_field(acceleration, cfg.fft_slab_width)
-                for derivative_component in range(3):
-                    if _raw_gradients is None:
-                        derivative_field(
-                            ComponentView(raw, component),
-                            derivative,
-                            derivative_component,
-                            cfg.domain_length,
-                            cfg.fft_slab_width,
-                            workers=cfg.fft_workers,
-                        )
-                        derivative.flush()
-                        raw_derivative = derivative
-                    else:
-                        raw_derivative = _raw_gradients[
-                            component, derivative_component
-                        ]
-                    if write_shared_gradient:
-                        _copy_crop(
-                            cfg,
-                            raw_derivative,
-                            shared_root["gradient"],
-                            (component, derivative_component),
-                        )
-                    sumsq, maximum, count = _field_statistics(
-                        raw_derivative, cfg.fft_slab_width
-                    )
-                    gradient_sumsq += sumsq
-                    gradient_maximum = max(gradient_maximum, maximum)
-                    gradient_count += count
-                    accumulate_product(
-                        acceleration,
-                        ComponentView(raw, derivative_component),
-                        raw_derivative,
-                        cfg.fft_slab_width,
-                    )
-                    progress.advance(task)
-
+    shared_root, write_shared_gradient = _prepare_shared_gradient(
+        cfg, time_index, manifest_hash
+    )
+    with Progress(
+        SpinnerColumn("line"),
+        TextColumn("{task.description}"),
+        BarColumn(),
+        "{task.completed}/{task.total}",
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("periodic spectral pipeline", total=39)
+        for component in range(3):
+            if not reused_filtered_velocity:
                 _filter_with_optional_spectrum(
-                    acceleration,
-                    derivative,
+                    ComponentView(raw, component),
+                    ComponentView(filtered_velocity, component),
                     temp_a,
                     temp_b,
                     sigma,
                     cfg,
                     _filter_spectra,
-                    ("acceleration", component),
+                    ("velocity", component),
                 )
-                derivative.flush()
-                _accumulate_zarr_product(
-                    result["work_full"],
-                    ComponentView(filtered_velocity, component),
-                    derivative,
-                )
-                progress.advance(task)
+            filtered_velocity.flush()
+            _copy_field(
+                cfg,
+                ComponentView(filtered_velocity, component),
+                result["velocity_bar"],
+                (component,),
+            )
+            progress.advance(task)
 
-                zero_field(acceleration, cfg.fft_slab_width)
-                for derivative_component in range(3):
+        atomic_json(
+            workspace / "filtered_velocity.json",
+            {
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "status": "complete",
+                "input_manifest_hash": manifest_hash,
+                "sigma_grid": sigma,
+                "filter_type": cfg.filter_type,
+                **_sharp_edge_metadata(cfg, sigma),
+                "shape": list(expected),
+                "reused": reused_filtered_velocity,
+            },
+        )
+
+        _zero_zarr(result["work_full"])
+        _zero_zarr(result["work_resolved"])
+        _zero_zarr(result["pi"])
+        _zero_zarr(result["s_bar"])
+        filtered_divergence = ComponentView(sgs_transport, 0)
+        zero_field(filtered_divergence, cfg.fft_slab_width)
+
+        for component in range(3):
+            zero_field(acceleration, cfg.fft_slab_width)
+            for derivative_component in range(3):
+                if _raw_gradients is None:
                     derivative_field(
-                        ComponentView(filtered_velocity, component),
+                        ComponentView(raw, component),
                         derivative,
                         derivative_component,
                         cfg.domain_length,
@@ -908,115 +834,54 @@ def process_center(
                         workers=cfg.fft_workers,
                     )
                     derivative.flush()
-                    _copy_crop(
+                    raw_derivative = derivative
+                else:
+                    raw_derivative = _raw_gradients[
+                        component, derivative_component
+                    ]
+                if write_shared_gradient:
+                    _copy_field(
                         cfg,
-                        derivative,
-                        result["gradient_bar"],
+                        raw_derivative,
+                        shared_root["gradient"],
                         (component, derivative_component),
                     )
-                    sumsq, maximum, count = _field_statistics(
-                        derivative, cfg.fft_slab_width
-                    )
-                    filtered_gradient_sumsq += sumsq
-                    filtered_gradient_maximum = max(
-                        filtered_gradient_maximum, maximum
-                    )
-                    filtered_gradient_count += count
-                    if derivative_component == component:
-                        _accumulate_full(
-                            filtered_divergence,
-                            derivative,
-                            cfg.fft_slab_width,
-                        )
-                    accumulate_product(
-                        acceleration,
-                        ComponentView(filtered_velocity, derivative_component),
-                        derivative,
-                        cfg.fft_slab_width,
-                    )
-                    progress.advance(task)
-                _accumulate_zarr_product(
-                    result["work_resolved"],
-                    ComponentView(filtered_velocity, component),
+                sumsq, maximum, count = _field_statistics(
+                    raw_derivative, cfg.fft_slab_width
+                )
+                gradient_sumsq += sumsq
+                gradient_maximum = max(gradient_maximum, maximum)
+                gradient_count += count
+                accumulate_product(
                     acceleration,
+                    ComponentView(raw, derivative_component),
+                    raw_derivative,
+                    cfg.fft_slab_width,
                 )
                 progress.advance(task)
 
-            (
-                filtered_divergence_sumsq,
-                filtered_divergence_maximum,
-                filtered_point_count,
-            ) = _field_statistics(filtered_divergence, cfg.fft_slab_width)
+            _filter_with_optional_spectrum(
+                acceleration,
+                derivative,
+                temp_a,
+                temp_b,
+                sigma,
+                cfg,
+                _filter_spectra,
+                ("acceleration", component),
+            )
+            derivative.flush()
+            _accumulate_zarr_product(
+                result["work_full"],
+                ComponentView(filtered_velocity, component),
+                derivative,
+            )
+            progress.advance(task)
 
-            for component in range(3):
-                zero_field(
-                    ComponentView(sgs_transport, component), cfg.fft_slab_width
-                )
-
-            for left_component in range(3):
-                for right_component in range(left_component, 3):
-                    product = ProductView(
-                            ComponentView(raw, left_component),
-                            ComponentView(raw, right_component),
-                        )
-                    _filter_with_optional_spectrum(
-                        product,
-                        derivative,
-                        temp_a,
-                        temp_b,
-                        sigma,
-                        cfg,
-                        _filter_spectra,
-                        ("product", left_component, right_component),
-                    )
-                    subtract_product(
-                        derivative,
-                        ComponentView(filtered_velocity, left_component),
-                        ComponentView(filtered_velocity, right_component),
-                        cfg.fft_slab_width,
-                    )
-                    derivative.flush()
-                    _copy_full(temp_a, derivative, cfg.fft_slab_width)
-
-                    derivative_field(
-                        ComponentView(filtered_velocity, left_component),
-                        derivative,
-                        right_component,
-                        cfg.domain_length,
-                        cfg.fft_slab_width,
-                        workers=cfg.fft_workers,
-                    )
-                    _accumulate_zarr_product(result["pi"], temp_a, derivative)
-                    if left_component != right_component:
-                        derivative_field(
-                            ComponentView(filtered_velocity, right_component),
-                            derivative,
-                            left_component,
-                            cfg.domain_length,
-                            cfg.fft_slab_width,
-                            workers=cfg.fft_workers,
-                        )
-                        _accumulate_zarr_product(result["pi"], temp_a, derivative)
-
-                    accumulate_product(
-                        ComponentView(sgs_transport, right_component),
-                        ComponentView(filtered_velocity, left_component),
-                        temp_a,
-                        cfg.fft_slab_width,
-                    )
-                    if left_component != right_component:
-                        accumulate_product(
-                            ComponentView(sgs_transport, left_component),
-                            ComponentView(filtered_velocity, right_component),
-                            temp_a,
-                            cfg.fft_slab_width,
-                        )
-                    progress.advance(task)
-
-            sgs_transport.flush()
+            zero_field(acceleration, cfg.fft_slab_width)
             for derivative_component in range(3):
                 derivative_field(
-                    ComponentView(sgs_transport, derivative_component),
+                    ComponentView(filtered_velocity, component),
                     derivative,
                     derivative_component,
                     cfg.domain_length,
@@ -1024,41 +889,157 @@ def process_center(
                     workers=cfg.fft_workers,
                 )
                 derivative.flush()
-                _accumulate_zarr(result["s_bar"], derivative)
-                progress.advance(task)
-
-            zero_field(acceleration, cfg.fft_slab_width)
-            for component in range(3):
-                if _raw_gradients is None:
-                    derivative_field(
-                        ComponentView(raw, component),
+                _copy_field(
+                    cfg,
+                    derivative,
+                    result["gradient_bar"],
+                    (component, derivative_component),
+                )
+                sumsq, maximum, count = _field_statistics(
+                    derivative, cfg.fft_slab_width
+                )
+                filtered_gradient_sumsq += sumsq
+                filtered_gradient_maximum = max(
+                    filtered_gradient_maximum, maximum
+                )
+                filtered_gradient_count += count
+                if derivative_component == component:
+                    _accumulate_full(
+                        filtered_divergence,
                         derivative,
-                        component,
+                        cfg.fft_slab_width,
+                    )
+                accumulate_product(
+                    acceleration,
+                    ComponentView(filtered_velocity, derivative_component),
+                    derivative,
+                    cfg.fft_slab_width,
+                )
+                progress.advance(task)
+            _accumulate_zarr_product(
+                result["work_resolved"],
+                ComponentView(filtered_velocity, component),
+                acceleration,
+            )
+            progress.advance(task)
+
+        (
+            filtered_divergence_sumsq,
+            filtered_divergence_maximum,
+            filtered_point_count,
+        ) = _field_statistics(filtered_divergence, cfg.fft_slab_width)
+
+        for component in range(3):
+            zero_field(
+                ComponentView(sgs_transport, component), cfg.fft_slab_width
+            )
+
+        for left_component in range(3):
+            for right_component in range(left_component, 3):
+                product = ProductView(
+                        ComponentView(raw, left_component),
+                        ComponentView(raw, right_component),
+                    )
+                _filter_with_optional_spectrum(
+                    product,
+                    derivative,
+                    temp_a,
+                    temp_b,
+                    sigma,
+                    cfg,
+                    _filter_spectra,
+                    ("product", left_component, right_component),
+                )
+                subtract_product(
+                    derivative,
+                    ComponentView(filtered_velocity, left_component),
+                    ComponentView(filtered_velocity, right_component),
+                    cfg.fft_slab_width,
+                )
+                derivative.flush()
+                _copy_full(temp_a, derivative, cfg.fft_slab_width)
+
+                derivative_field(
+                    ComponentView(filtered_velocity, left_component),
+                    derivative,
+                    right_component,
+                    cfg.domain_length,
+                    cfg.fft_slab_width,
+                    workers=cfg.fft_workers,
+                )
+                _accumulate_zarr_product(result["pi"], temp_a, derivative)
+                if left_component != right_component:
+                    derivative_field(
+                        ComponentView(filtered_velocity, right_component),
+                        derivative,
+                        left_component,
                         cfg.domain_length,
                         cfg.fft_slab_width,
                         workers=cfg.fft_workers,
                     )
-                    raw_diagonal = derivative
-                else:
-                    raw_diagonal = _raw_gradients[component, component]
-                for start in range(0, acceleration.shape[0], cfg.fft_slab_width):
-                    key = (
-                        slice(
-                            start,
-                            min(start + cfg.fft_slab_width, acceleration.shape[0]),
-                        ),
-                        slice(None),
-                        slice(None),
-                    )
-                    acceleration[key] = np.asarray(acceleration[key]) + np.asarray(
-                        raw_diagonal[key]
+                    _accumulate_zarr_product(result["pi"], temp_a, derivative)
+
+                accumulate_product(
+                    ComponentView(sgs_transport, right_component),
+                    ComponentView(filtered_velocity, left_component),
+                    temp_a,
+                    cfg.fft_slab_width,
+                )
+                if left_component != right_component:
+                    accumulate_product(
+                        ComponentView(sgs_transport, left_component),
+                        ComponentView(filtered_velocity, right_component),
+                        temp_a,
+                        cfg.fft_slab_width,
                     )
                 progress.advance(task)
 
-        if write_shared_gradient:
-            _finalize_shared_gradient(
-                cfg, time_index, manifest_hash, shared_root
+        sgs_transport.flush()
+        for derivative_component in range(3):
+            derivative_field(
+                ComponentView(sgs_transport, derivative_component),
+                derivative,
+                derivative_component,
+                cfg.domain_length,
+                cfg.fft_slab_width,
+                workers=cfg.fft_workers,
             )
+            derivative.flush()
+            _accumulate_zarr(result["s_bar"], derivative)
+            progress.advance(task)
+
+        zero_field(acceleration, cfg.fft_slab_width)
+        for component in range(3):
+            if _raw_gradients is None:
+                derivative_field(
+                    ComponentView(raw, component),
+                    derivative,
+                    component,
+                    cfg.domain_length,
+                    cfg.fft_slab_width,
+                    workers=cfg.fft_workers,
+                )
+                raw_diagonal = derivative
+            else:
+                raw_diagonal = _raw_gradients[component, component]
+            for start in range(0, acceleration.shape[0], cfg.fft_slab_width):
+                key = (
+                    slice(
+                        start,
+                        min(start + cfg.fft_slab_width, acceleration.shape[0]),
+                    ),
+                    slice(None),
+                    slice(None),
+                )
+                acceleration[key] = np.asarray(acceleration[key]) + np.asarray(
+                    raw_diagonal[key]
+                )
+            progress.advance(task)
+
+    if write_shared_gradient:
+        _finalize_shared_gradient(
+            cfg, time_index, manifest_hash, shared_root
+        )
 
     atomic_json(
         staging / "shared_refs.json",
@@ -1124,7 +1105,6 @@ def process_center(
 
     s_bar_report = compute_sbar_qa(result, cfg, scope="full_domain")
     s_bar_report_hash = write_sbar_artifacts(staging, s_bar_report)
-    overlap_report = _validate_previous_center_overlap(cfg, sigma, final, result)
     identity_metric = s_bar_report["metrics"]["identity_relative_residual_rms"]
     decomposition_report = {
         "identity": "work_full = work_resolved - pi + s_bar",
@@ -1164,7 +1144,6 @@ def process_center(
             "filtered_velocity": reused_filtered_velocity,
             "raw_gradients": _raw_gradients is not None,
             "first_axis_fft_spectra": _filter_spectra is not None,
-            "previous_center_overlap": overlap_report,
         },
         "epsilon_full": regime_report["epsilon_full"],
         "epsilon_resolved": regime_report["epsilon_resolved"],
@@ -1221,7 +1200,7 @@ def finalize_result(
     sigma = cfg.sigma_grid if sigma_grid is None else float(sigma_grid)
     staging = cfg.staging_result_path(time_index, sigma)
     final = cfg.result_path(time_index, sigma)
-    existing = reuse_or_backfill_result(cfg, time_index, sigma)
+    existing = reuse_complete_result(cfg, time_index, sigma)
     if existing is not None:
         return existing
     if not staging.is_dir():
@@ -1231,10 +1210,10 @@ def finalize_result(
         raise RuntimeError("persistent result staging has not completed processing")
 
     expected_shapes = {
-        "velocity": (3, *cfg.result_shape_zyx),
-        "gradient": (3, 3, *cfg.result_shape_zyx),
-        "velocity_bar": (3, *cfg.result_shape_zyx),
-        "gradient_bar": (3, 3, *cfg.result_shape_zyx),
+        "velocity": (3, *cfg.full_shape_zyx),
+        "gradient": (3, 3, *cfg.full_shape_zyx),
+        "velocity_bar": (3, *cfg.full_shape_zyx),
+        "gradient_bar": (3, 3, *cfg.full_shape_zyx),
         "work_full": cfg.full_shape_zyx,
         "work_resolved": cfg.full_shape_zyx,
         "pi": cfg.full_shape_zyx,
@@ -1272,8 +1251,8 @@ def finalize_result(
         **_sharp_edge_metadata(cfg, sigma),
         "input_manifest_hash": input_manifest_hash(cfg, time_index),
         "algorithm": root.attrs.get("algorithm"),
-        "crop_start_xyz": list(cfg.crop_start),
-        "crop_shape_xyz": list(cfg.crop_shape),
+
+
         "full_shape_xyz": list(cfg.grid_shape),
         "field_scopes": dict(root.attrs.get("field_scopes", {})),
         "s_bar_qa_passed": bool(root.attrs.get("s_bar_qa_passed", False)),
@@ -1324,74 +1303,99 @@ def finalize_result(
 def _build_batch_reuse(
     cfg: PipelineConfig,
     raw: Any,
+    cache_dir: Path | None = None,
 ) -> tuple[np.ndarray, dict[tuple[Any, ...], np.ndarray]]:
-    """Build the full-domain production RAM cache shared by configured sigmas."""
+    """Build shared gradients and twelve spectra once, in RAM or mapped files."""
     full_shape = cfg.full_shape_zyx
-    gradients = np.empty((3, 3, *full_shape), dtype=np.float32)
+    use_disk = cfg.fft_cache_mode == "memmap"
+    if use_disk and cache_dir is None:
+        raise ValueError("memmap cache requires a workspace directory")
+    gradients = (mapped_array(cache_dir / "gradients.f32", (3, 3, *full_shape), "<f4")
+                 if use_disk else np.empty((3, 3, *full_shape), dtype=np.float32))
     spectra: dict[tuple[Any, ...], np.ndarray] = {}
-    console = Console()
-    with Progress(
-        SpinnerColumn("line"),
-        TextColumn("{task.description}"),
-        BarColumn(),
-        "{task.completed}/{task.total}",
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("multi-sigma shared FFT cache", total=21)
-        for component in range(3):
-            for derivative_component in range(3):
-                derivative_field(
+    try:
+        console = Console()
+        with Progress(
+            SpinnerColumn("line"),
+            TextColumn("{task.description}"),
+            BarColumn(),
+            "{task.completed}/{task.total}",
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("multi-sigma shared FFT cache", total=21)
+            for component in range(3):
+                for derivative_component in range(3):
+                    derivative_field(
+                        ComponentView(raw, component),
+                        gradients[component, derivative_component],
+                        derivative_component,
+                        cfg.domain_length,
+                        cfg.fft_slab_width,
+                        workers=cfg.fft_workers,
+                    )
+                    release_pages(gradients)
+                    progress.advance(task)
+
+            spectrum_builder = (
+                full_spectrum if cfg.filter_type == "smooth_sharp" else axis2_spectrum
+            )
+
+            if use_disk:
+                sequence = 0
+
+                def spectrum_builder(source, slab, *, workers):
+                    nonlocal sequence
+                    sequence += 1
+                    return build_spectrum(source, cache_dir / f"spectrum_{sequence}.c64",
+                                          slab, workers=workers, full=cfg.filter_type == "smooth_sharp")
+
+            for component in range(3):
+                spectra[("velocity", component)] = spectrum_builder(
                     ComponentView(raw, component),
-                    gradients[component, derivative_component],
-                    derivative_component,
-                    cfg.domain_length,
                     cfg.fft_slab_width,
                     workers=cfg.fft_workers,
                 )
                 progress.advance(task)
 
-        spectrum_builder = (
-            full_spectrum if cfg.filter_type == "smooth_sharp" else axis2_spectrum
-        )
-
-        for component in range(3):
-            spectra[("velocity", component)] = spectrum_builder(
-                ComponentView(raw, component),
-                cfg.fft_slab_width,
-                workers=cfg.fft_workers,
-            )
-            progress.advance(task)
-
-        acceleration = np.empty(full_shape, dtype=np.float32)
-        for component in range(3):
-            acceleration.fill(0.0)
-            for derivative_component in range(3):
-                accumulate_product(
+            acceleration = (mapped_array(cache_dir / "acceleration.f32", full_shape, "<f4")
+                            if use_disk else np.empty(full_shape, dtype=np.float32))
+            for component in range(3):
+                acceleration.fill(0.0)
+                for derivative_component in range(3):
+                    accumulate_product(
+                        acceleration,
+                        ComponentView(raw, derivative_component),
+                        gradients[component, derivative_component],
+                        cfg.fft_slab_width,
+                    )
+                spectra[("acceleration", component)] = spectrum_builder(
                     acceleration,
-                    ComponentView(raw, derivative_component),
-                    gradients[component, derivative_component],
-                    cfg.fft_slab_width,
-                )
-            spectra[("acceleration", component)] = spectrum_builder(
-                acceleration,
-                cfg.fft_slab_width,
-                workers=cfg.fft_workers,
-            )
-            progress.advance(task)
-        del acceleration
-
-        for left_component in range(3):
-            for right_component in range(left_component, 3):
-                spectra[("product", left_component, right_component)] = spectrum_builder(
-                    ProductView(
-                        ComponentView(raw, left_component),
-                        ComponentView(raw, right_component),
-                    ),
                     cfg.fft_slab_width,
                     workers=cfg.fft_workers,
                 )
                 progress.advance(task)
+            if use_disk:
+                close_memmap(acceleration)
+                (cache_dir / "acceleration.f32").unlink()
+            del acceleration
+
+            for left_component in range(3):
+                for right_component in range(left_component, 3):
+                    spectra[("product", left_component, right_component)] = spectrum_builder(
+                        ProductView(
+                            ComponentView(raw, left_component),
+                            ComponentView(raw, right_component),
+                        ),
+                        cfg.fft_slab_width,
+                        workers=cfg.fft_workers,
+                    )
+                    progress.advance(task)
+    except BaseException:
+        for array in [gradients, *spectra.values(), locals().get("acceleration")]:
+            if isinstance(array, np.memmap) and not array._mmap.closed:
+                array._mmap.close()
+        raise
     return gradients, spectra
 
 
@@ -1413,7 +1417,8 @@ def _write_filter_batch_manifest(
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             sigma = float(manifest["sigma_grid"])
             if (
-                int(manifest.get("time_index", -1)) == time_index
+                manifest.get("schema_version") == RESULT_SCHEMA_VERSION
+                and int(manifest.get("time_index", -1)) == time_index
                 and _filter_metadata_matches(manifest, cfg, sigma)
             ):
                 all_sigmas.add(sigma)
@@ -1439,7 +1444,7 @@ def _write_filter_batch_manifest(
                 {
                     "sigma_grid": sigma,
                     "path": str(cfg.result_path(time_index, sigma).resolve()),
-                    "complete": (cfg.result_path(time_index, sigma) / "COMPLETE").is_file(),
+                    "complete": _complete_result_is_current(cfg, cfg.result_path(time_index, sigma), sigma),
                 }
                 for sigma in ordered_sigmas
             ],
@@ -1464,7 +1469,7 @@ def process_batch(
     results: dict[float, Path] = {}
     pending: list[float] = []
     for sigma in sigmas:
-        existing = reuse_or_backfill_result(cfg, time_index, sigma)
+        existing = reuse_complete_result(cfg, time_index, sigma)
         if existing is None:
             pending.append(float(sigma))
         else:
@@ -1476,7 +1481,7 @@ def process_batch(
         return paths
     if len(pending) == 1:
         sigma = pending[0]
-        process_center(cfg, time_index, sigma)
+        process_full(cfg, time_index, sigma)
         results[sigma] = finalize_result(cfg, time_index, sigma)
         paths = [results[float(value)] for value in sigmas]
         _write_filter_batch_manifest(cfg, time_index, sigmas, results, "complete")
@@ -1491,10 +1496,13 @@ def process_batch(
     if tuple(raw.shape) != expected or np.dtype(raw.dtype) != np.dtype("<f4"):
         raise RuntimeError("validated velocity cache has an unexpected schema")
 
+    _preflight_batch_space(cfg, time_index, len(pending))
     cfg.lock_path.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(cfg.lock_path / "process-center.lock"), timeout=0):
+    with FileLock(str(cfg.lock_path / "process.lock"), timeout=0), TemporaryDirectory(
+        prefix="batch-cache-", dir=cfg.run_path(time_index)
+    ) as cache_directory:
         try:
-            gradients, spectra = _build_batch_reuse(cfg, raw)
+            gradients, spectra = _build_batch_reuse(cfg, raw, Path(cache_directory))
         except MemoryError as exc:
             raise RuntimeError(
                 "insufficient RAM for the multi-sigma cache; approximately 84 GiB is required"
@@ -1506,7 +1514,7 @@ def process_batch(
                     f"sigma_grid={sigma:g} shared_fft=true",
                     flush=True,
                 )
-                process_center(
+                process_full(
                     cfg,
                     time_index,
                     sigma,
@@ -1519,263 +1527,22 @@ def process_batch(
                     cfg, time_index, sigmas, results, "running"
                 )
         finally:
+            for spectrum in spectra.values():
+                if isinstance(spectrum, np.memmap):
+                    close_memmap(spectrum)
             spectra.clear()
+            if isinstance(gradients, np.memmap):
+                close_memmap(gradients)
             del gradients
     paths = [results[float(sigma)] for sigma in sigmas]
     _write_filter_batch_manifest(cfg, time_index, sigmas, results, "complete")
     return paths
 
 
-_REGIME_STAGING_NAME = "_regime_full_v5_staging"
-_REGIME_BACKUP_NAME = "_regime_center_v4_backup"
-_REGIME_UPGRADE_FILES = {
-    "manifest.json": ".manifest.regime-v4-backup.json",
-    "qa.json": ".qa.regime-v4-backup.json",
-    "COMPLETE": ".COMPLETE.regime-v4-backup",
-}
-_REGIME_ATTRS_BACKUP = ".zattrs.regime-v4-backup.json"
-
-
-def _recover_or_cleanup_regime_upgrade(
-    cfg: PipelineConfig,
-    result_dir: Path,
-    sigma: float,
-) -> None:
-    zarr_path = result_dir / result_zarr_name(sigma)
-    if not zarr_path.is_dir():
-        return
-    root = zarr.open_group(str(zarr_path), mode="a")
-    backups_exist = any(
-        (result_dir / backup).is_file()
-        for backup in (*_REGIME_UPGRADE_FILES.values(), _REGIME_ATTRS_BACKUP)
-    ) or _REGIME_BACKUP_NAME in root
-    if not backups_exist:
-        return
-    if (
-        (result_dir / "COMPLETE").is_file()
-        and _complete_result_schema(result_dir, sigma) == RESULT_SCHEMA_VERSION
-        and tuple(root["regime"].shape) == cfg.full_shape_zyx
-    ):
-        for name in (_REGIME_STAGING_NAME, _REGIME_BACKUP_NAME):
-            if name in root:
-                del root[name]
-        for backup in (*_REGIME_UPGRADE_FILES.values(), _REGIME_ATTRS_BACKUP):
-            (result_dir / backup).unlink(missing_ok=True)
-        return
-
-    if _REGIME_BACKUP_NAME in root:
-        if "regime" in root:
-            del root["regime"]
-        root.move(_REGIME_BACKUP_NAME, "regime")
-    if _REGIME_STAGING_NAME in root:
-        del root[_REGIME_STAGING_NAME]
-    attrs_backup = result_dir / _REGIME_ATTRS_BACKUP
-    if attrs_backup.is_file():
-        original_attrs = json.loads(attrs_backup.read_text(encoding="utf-8"))
-        root.attrs.clear()
-        root.attrs.update(original_attrs)
-    for original, backup in _REGIME_UPGRADE_FILES.items():
-        backup_path = result_dir / backup
-        if backup_path.is_file():
-            os.replace(backup_path, result_dir / original)
-    attrs_backup.unlink(missing_ok=True)
-
-
-def _backfill_full_regime_locked(
-    cfg: PipelineConfig,
-    time_index: int,
-    sigma_grid: float | None = None,
-) -> Path:
-    """Upgrade a complete schema-v4 result using its persistent full work fields."""
+def reuse_complete_result(cfg: PipelineConfig, time_index: int, sigma_grid: float | None = None) -> Path | None:
     sigma = cfg.sigma_grid if sigma_grid is None else float(sigma_grid)
     final = cfg.result_path(time_index, sigma)
-    _recover_or_cleanup_regime_upgrade(cfg, final, sigma)
-    if _complete_result_is_current(cfg, final, sigma):
-        return final
-    if _complete_result_schema(final, sigma) != 4:
-        raise RuntimeError("full-regime backfill requires a complete schema-v4 result")
-
-    manifest_path = final / "manifest.json"
-    qa_path = final / "qa.json"
-    if not manifest_path.is_file() or not qa_path.is_file():
-        raise RuntimeError("schema-v4 manifest and QA records are required")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("schema_version") != 4:
-        raise RuntimeError("manifest is not schema v4")
-    zarr_path = final / result_zarr_name(sigma)
-    root = zarr.open_group(str(zarr_path), mode="a")
-    if (
-        tuple(root["work_full"].shape) != cfg.full_shape_zyx
-        or tuple(root["work_resolved"].shape) != cfg.full_shape_zyx
-        or tuple(root["regime"].shape) != cfg.result_shape_zyx
-    ):
-        raise RuntimeError("schema-v4 fields do not support full-regime backfill")
-
-    full_points = int(np.prod(cfg.full_shape_zyx, dtype=np.int64))
-    required = full_points + int(cfg.persistent_safety_reserve_gib * 1024**3)
-    free = shutil.disk_usage(final).free
-    if free < required:
-        raise RuntimeError(
-            f"insufficient result space for regime backfill: "
-            f"{free / 1024**3:.2f} GiB free, need {required / 1024**3:.2f} GiB"
-        )
-
-    if _REGIME_STAGING_NAME in root:
-        del root[_REGIME_STAGING_NAME]
-    work_chunks = tuple(int(value) for value in root["work_full"].chunks)
-    staged = root.create_dataset(
-        _REGIME_STAGING_NAME,
-        shape=cfg.full_shape_zyx,
-        chunks=work_chunks,
-        dtype="u1",
-        compressor=root["regime"].compressor,
-        fill_value=0,
-    )
-    regime_report = _write_full_regime(
-        root["work_full"], root["work_resolved"], staged, cfg
-    )
-    digest, byte_count, minimum, maximum = hash_zarr_array(staged)
-
-    atomic_json(final / _REGIME_ATTRS_BACKUP, dict(root.attrs))
-    shutil.copy2(manifest_path, final / _REGIME_UPGRADE_FILES["manifest.json"])
-    shutil.copy2(qa_path, final / _REGIME_UPGRADE_FILES["qa.json"])
-    os.replace(final / "COMPLETE", final / _REGIME_UPGRADE_FILES["COMPLETE"])
-    try:
-        root.move("regime", _REGIME_BACKUP_NAME)
-        root.move(_REGIME_STAGING_NAME, "regime")
-
-        qa = json.loads(qa_path.read_text(encoding="utf-8"))
-        qa.update(
-            {
-                "epsilon_full": regime_report["epsilon_full"],
-                "epsilon_resolved": regime_report["epsilon_resolved"],
-                "regime_scope": "full_domain",
-                "regime_point_count": regime_report["point_count"],
-                "occupancy": regime_report["occupancy"],
-            }
-        )
-        reuse = dict(qa.get("reuse", {}))
-        reuse["regime"] = "persistent_schema_v4_full_work_fields"
-        qa["reuse"] = reuse
-        atomic_json(qa_path, qa)
-
-        fields = dict(manifest.get("fields", {}))
-        fields["regime"] = {
-            "shape": list(cfg.full_shape_zyx),
-            "dtype": str(np.dtype("u1")),
-            "chunks": list(work_chunks),
-            "sha256": digest,
-            "byte_count": byte_count,
-            "minimum": minimum,
-            "maximum": maximum,
-        }
-        scopes = dict(manifest.get("field_scopes", {}))
-        scopes["regime"] = "full_domain"
-        manifest.update(
-            {
-                "schema_version": RESULT_SCHEMA_VERSION,
-                "algorithm": "full_periodic_spectral_pi_sbar_regime_v6",
-                "field_scopes": scopes,
-                "fields": fields,
-            }
-        )
-        manifest_hash = atomic_json(manifest_path, manifest)
-        output_hashes = dict(root.attrs.get("output_hashes", {}))
-        output_hashes["regime"] = digest
-        root_scopes = dict(root.attrs.get("field_scopes", {}))
-        root_scopes["regime"] = "full_domain"
-        root.attrs.update(
-            {
-                "result_schema_version": RESULT_SCHEMA_VERSION,
-                "algorithm": "full_periodic_spectral_pi_sbar_regime_v6",
-                "field_scopes": root_scopes,
-                "epsilon_full": regime_report["epsilon_full"],
-                "epsilon_resolved": regime_report["epsilon_resolved"],
-                "regime_scope": "full_domain",
-                "regime_backfill_source_schema": 4,
-                "occupancy": regime_report["occupancy"],
-                "output_hashes": output_hashes,
-                "manifest_hash": manifest_hash,
-            }
-        )
-        atomic_json(final / "COMPLETE", {"manifest_hash": manifest_hash})
-    except Exception:
-        _recover_or_cleanup_regime_upgrade(cfg, final, sigma)
-        raise
-    _recover_or_cleanup_regime_upgrade(cfg, final, sigma)
-    return final
-
-
-def backfill_full_regime(
-    cfg: PipelineConfig,
-    time_index: int,
-    sigma_grid: float | None = None,
-) -> Path:
-    """Serialize and run the persistent-only schema-v4 regime upgrade."""
-    sigma = cfg.sigma_grid if sigma_grid is None else float(sigma_grid)
-    cfg.lock_path.mkdir(parents=True, exist_ok=True)
-    lock_name = f"backfill-full-regime-{cfg.result_id(time_index, sigma)}.lock"
-    with FileLock(str(cfg.lock_path / lock_name), timeout=0):
-        result = _backfill_full_regime_locked(cfg, time_index, sigma)
-    ensure_sbar_result(cfg, time_index, sigma)
-    return ensure_cq_result(cfg, time_index, sigma)
-
-
-def reuse_or_backfill_result(
-    cfg: PipelineConfig,
-    time_index: int,
-    sigma_grid: float | None = None,
-) -> Path | None:
-    sigma = cfg.sigma_grid if sigma_grid is None else float(sigma_grid)
-    final = cfg.result_path(time_index, sigma)
-    _recover_or_cleanup_regime_upgrade(cfg, final, sigma)
     if _complete_result_is_current(cfg, final, sigma):
         ensure_sbar_result(cfg, time_index, sigma)
         return ensure_cq_result(cfg, time_index, sigma)
-    if _complete_result_schema(final, sigma) == 5:
-        from .migration import migrate_existing_result
-
-        migrate_existing_result(cfg, time_index, sigma)
-        return final
-    if _complete_result_schema(final, sigma) == 4:
-        return backfill_full_regime(cfg, time_index, sigma)
     return None
-
-
-def backfill_full_fields(
-    cfg: PipelineConfig,
-    time_index: int,
-    sigma_grid: float | None = None,
-) -> Path:
-    """Build the current full-field schema from v2/v3 without fetching JHTDB."""
-    sigma = cfg.sigma_grid if sigma_grid is None else float(sigma_grid)
-    final = cfg.result_path(time_index, sigma)
-    if _complete_result_is_current(cfg, final, sigma):
-        return final
-    if not (final / "COMPLETE").is_file():
-        raise RuntimeError("an older complete persistent result is required")
-    manifest_path = final / "manifest.json"
-    if not manifest_path.is_file():
-        raise RuntimeError("older result manifest is missing")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("schema_version") not in (2, 3):
-        raise RuntimeError("backfill requires a complete schema-v2 or schema-v3 result")
-    if not cfg.raw_store_path(time_index).is_dir():
-        raise RuntimeError(
-            "validated persistent velocity_cache.zarr is required; "
-            "backfill-full-fields never fetches JHTDB automatically"
-        )
-    process_center(cfg, time_index, sigma)
-    return finalize_result(cfg, time_index, sigma)
-
-
-def upgrade_result(
-    cfg: PipelineConfig,
-    time_index: int,
-    sigma_grid: float | None = None,
-) -> Path:
-    """Upgrade v4 regime directly, or rebuild missing v2/v3 full fields."""
-    existing = reuse_or_backfill_result(cfg, time_index, sigma_grid)
-    if existing is not None:
-        return existing
-    return backfill_full_fields(cfg, time_index, sigma_grid)

@@ -20,8 +20,8 @@ def small_config(root: Path):
         grid_shape=(16, 16, 16),
         request_shape=(8, 8, 8),
         tile_shape=(8, 8, 8),
-        crop_start=(4, 4, 4),
-        crop_shape=(8, 8, 8),
+
+
         state_root=root / "state",
         run_root=root / "runs",
         result_root=root / "results",

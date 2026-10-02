@@ -37,3 +37,9 @@ Two HTML views are written from the same points and normalization:
 `r_eq/eta` comparison. It keeps the original reference values `epsilon=0.0928` and
 `eta=0.00287`, and converts smooth-sharp sigma to a Gaussian-equivalent width by matching
 the half-gain wavenumber.
+
+## 代码与验证导航
+
+所有运行命令从项目根目录执行。完整参数见 [CLI 参考](../docs/cli_reference.md)，所有函数与实现定位见 [本项目代码参考](CODE_REFERENCE.md)。测试：`python -m pytest flux_plateau/tests -q`；解释器使用根 README 对应平台虚拟环境。返回 [项目 README](../README.md)。
+
+`plot_flux_comparison.m` 是独立 MATLAB 静态参考图脚本，内部固定 Gaussian、论文及 smooth-sharp 比较数组（包括历史固定边宽组），不读取当前 Zarr，不代表本次计算输出。MATLAB 中从项目根运行 `run('flux_plateau/plot_flux_comparison.m')`；当前生产滤波只使用比例边宽，重算图表应使用 Python 入口读取新报告。

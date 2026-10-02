@@ -15,20 +15,16 @@ import zarr
 from jhtdb_pipeline.catalog import Catalog
 from jhtdb_pipeline.config import load_config, result_zarr_name
 from jhtdb_pipeline.cq import ensure_cq_result
-from jhtdb_pipeline.migration import migrate_existing_result
 from jhtdb_pipeline.physics import axis2_spectrum as physics_axis2_spectrum
 from jhtdb_pipeline.physics import full_spectrum as physics_full_spectrum
 from jhtdb_pipeline.physics import spectral_derivative, spectral_gaussian
-from jhtdb_pipeline.physics import legacy_regime_codes
 from jhtdb_pipeline.planning import Tile
 from jhtdb_pipeline.sbar_qa import ensure_sbar_result, run_sbar_qa
 from jhtdb_pipeline.processing import (
-    backfill_full_fields,
-    backfill_full_regime,
     filter_field as processing_filter_field,
     finalize_result,
     process_batch,
-    process_center,
+    process_full,
     resource_plan,
 )
 from jhtdb_pipeline.store import VelocityStore, open_complete_result
@@ -41,8 +37,8 @@ def fixture(root: Path, *, compressible: bool = False):
         grid_shape=(16, 16, 16),
         request_shape=(16, 16, 16),
         tile_shape=(8, 8, 8),
-        crop_start=(4, 4, 4),
-        crop_shape=(8, 8, 8),
+
+
         state_root=root / "state",
         run_root=root / "runs",
         result_root=root / "results",
@@ -129,7 +125,7 @@ class ProcessingTests(unittest.TestCase):
                 sigma_grid=2.0,
                 sigma_grids=(2.0,),
             )
-            process_center(cfg, 1, 2.0)
+            process_full(cfg, 1, 2.0)
             final = finalize_result(cfg, 1, 2.0)
             self.assertEqual(
                 final.name, "t000001_filter_smooth_sharp_a0p125kc_sigma_2"
@@ -153,7 +149,7 @@ class ProcessingTests(unittest.TestCase):
             )
             self.assertIn("a0p125kc", cfg.result_id(1, 2.0))
 
-            process_center(cfg, 1, 2.0)
+            process_full(cfg, 1, 2.0)
             final = finalize_result(cfg, 1, 2.0)
             result = open_complete_result(final)
             self.assertEqual(result.attrs["sharp_edge_width_fraction"], 0.125)
@@ -177,7 +173,7 @@ class ProcessingTests(unittest.TestCase):
                 self.assertEqual(open_complete_result(path)["regime"].dtype, np.dtype("u1"))
 
             normal_cfg, _ = fixture(root / "normal")
-            process_center(normal_cfg, 1, 1.0)
+            process_full(normal_cfg, 1, 1.0)
             normal_path = finalize_result(normal_cfg, 1, 1.0)
             batch_result = open_complete_result(paths[0])
             normal_result = open_complete_result(normal_path)
@@ -187,79 +183,8 @@ class ProcessingTests(unittest.TestCase):
             ):
                 np.testing.assert_array_equal(batch_result[name][:], normal_result[name][:])
 
-    def test_schema_v5_result_migrates_without_recomputing_physics(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            cfg, _ = fixture(Path(temporary))
-            process_center(cfg, 1)
-            final = finalize_result(cfg, 1)
-            logical = open_complete_result(final)
-            raw_center = np.asarray(logical["velocity"][:])
-            gradient_center = np.asarray(logical["gradient"][:])
-            v6_regime = np.asarray(logical["regime"][:])
-            old_regime = legacy_regime_codes(v6_regime)
 
-            root = zarr.open_group(
-                str(final / result_zarr_name(cfg.sigma_grid)), mode="a"
-            )
-            root.create_dataset(
-                "velocity", data=raw_center, chunks=(1, 4, 4, 4), dtype="<f4"
-            )
-            root.create_dataset(
-                "gradient",
-                data=gradient_center,
-                chunks=(1, 1, 4, 4, 4),
-                dtype="<f4",
-            )
-            root["regime"][:] = old_regime
-            root.attrs["result_schema_version"] = 5
-            manifest_path = final / "manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["schema_version"] = 5
-            atomic_json(manifest_path, manifest)
-            (final / "shared_refs.json").unlink()
-            shutil.rmtree(cfg.shared_result_path(1))
-            legacy_cache = cfg.legacy_raw_store_path(1)
-            legacy_cache.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(cfg.persistent_raw_store_path(1), legacy_cache)
-
-            with patch(
-                "jhtdb_pipeline.processing.filter_field",
-                side_effect=AssertionError("migration must not filter fields"),
-            ), patch(
-                "jhtdb_pipeline.processing.derivative_field",
-                side_effect=AssertionError("migration must not compute derivatives"),
-            ):
-                report = migrate_existing_result(cfg, 1)
-
-            self.assertEqual(report["status"], "migrated_v5_to_v6")
-            self.assertTrue(cfg.persistent_raw_store_path(1).is_dir())
-            self.assertTrue((cfg.shared_result_path(1) / "COMPLETE").is_file())
-            migrated_root = zarr.open_group(
-                str(final / result_zarr_name(cfg.sigma_grid)), mode="r"
-            )
-            self.assertEqual(migrated_root.attrs["result_schema_version"], 6)
-            migrated_codes = np.asarray(migrated_root["regime"][:])
-            np.testing.assert_array_equal(
-                legacy_regime_codes(migrated_codes), old_regime
-            )
-            migrated = open_complete_result(final)
-            np.testing.assert_array_equal(migrated["velocity"][:], raw_center)
-            np.testing.assert_array_equal(migrated["gradient"][:], gradient_center)
-
-            reclaimed = migrate_existing_result(
-                cfg, 1, reclaim_redundant=True
-            )
-            self.assertEqual(reclaimed["status"], "already_v6")
-            compact = zarr.open_group(
-                str(final / result_zarr_name(cfg.sigma_grid)), mode="r"
-            )
-            self.assertNotIn("velocity", compact)
-            self.assertNotIn("gradient", compact)
-            np.testing.assert_array_equal(
-                open_complete_result(final)["velocity"][:], raw_center
-            )
-
-    def test_center_pipeline_and_persistent_finalization(self) -> None:
+    def test_full_pipeline_and_persistent_finalization(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cfg, velocity = fixture(Path(temporary))
             batch_cfg = replace(
@@ -268,7 +193,7 @@ class ProcessingTests(unittest.TestCase):
                 sigma_grids=(1.0, 2.0, 3.0),
             )
             plan = resource_plan(batch_cfg)
-            expected_result_bytes = 8**3 * 48 + 16**3 * 17
+            expected_result_bytes = 16**3 * 65
             self.assertEqual(
                 plan["result_GiB"], expected_result_bytes / 1024**3
             )
@@ -277,7 +202,7 @@ class ProcessingTests(unittest.TestCase):
                 plan["batch_result_GiB"],
                 3 * expected_result_bytes / 1024**3,
             )
-            staging = process_center(cfg, 1)
+            staging = process_full(cfg, 1)
             self.assertTrue((staging / result_zarr_name(cfg.sigma_grid)).is_dir())
             divergence = json.loads(
                 (staging / "divergence.json").read_text(encoding="utf-8")
@@ -296,19 +221,18 @@ class ProcessingTests(unittest.TestCase):
             self.assertTrue((final / "weak_asymmetry.html").is_file())
             self.assertEqual(run_sbar_qa(cfg, 1)["scope"], "full_domain")
             result = open_complete_result(final)
-            self.assertEqual(result["velocity"].shape, (3, 8, 8, 8))
-            self.assertEqual(result["gradient"].shape, (3, 3, 8, 8, 8))
+            self.assertEqual(result["velocity"].shape, (3, 16, 16, 16))
+            self.assertEqual(result["gradient"].shape, (3, 3, 16, 16, 16))
             self.assertEqual(result["work_full"].shape, (16, 16, 16))
             self.assertEqual(result["regime"].shape, (16, 16, 16))
-            crop = (slice(4, 12), slice(4, 12), slice(4, 12))
-            np.testing.assert_allclose(result["velocity"][0], velocity[(0,) + crop])
-            expected_filtered = spectral_gaussian(velocity[0], cfg.sigma_grid)[crop]
+            np.testing.assert_allclose(result["velocity"][0], velocity[0])
+            expected_filtered = spectral_gaussian(velocity[0], cfg.sigma_grid)
             np.testing.assert_allclose(
                 result["velocity_bar"][0], expected_filtered, rtol=2e-5, atol=2e-6
             )
             expected_gradient = spectral_derivative(
                 velocity[0], 2, cfg.domain_length
-            )[crop]
+            )
             np.testing.assert_allclose(
                 result["gradient"][0, 0], expected_gradient, rtol=2e-5, atol=2e-6
             )
@@ -358,7 +282,7 @@ class ProcessingTests(unittest.TestCase):
             self.assertFalse(cfg.workspace_path(1).exists())
             self.assertFalse(any(final.rglob("*.part-*")))
             manifest = json.loads((final / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["schema_version"], 6)
+            self.assertEqual(manifest["schema_version"], 7)
             self.assertEqual(manifest["field_scopes"]["regime"], "full_domain")
             self.assertEqual(manifest["s_bar_qa_report_version"], 3)
             self.assertIn("s_bar_qa_report_hash", manifest)
@@ -392,53 +316,6 @@ class ProcessingTests(unittest.TestCase):
                 ["identity_relative_residual_rms"]["threshold"],
                 5.0e-4,
             )
-            weak_path = final / "weak_asymmetry.json"
-            v1_report = json.loads(weak_path.read_text(encoding="utf-8"))
-            v1_report["report_version"] = 1
-            for key in (
-                "abs_pi_p99",
-                "abs_pi_max",
-                "ratio_p99",
-                "ratio_p99_definition",
-                "ratio_p99_error",
-                "ratio_max",
-                "ratio_max_definition",
-                "ratio_max_error",
-            ):
-                v1_report["global"].pop(key, None)
-            v1_hash = atomic_json(weak_path, v1_report)
-            manifest_path = final / "manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest.update(
-                {
-                    "weak_asymmetry_report_version": 1,
-                    "weak_asymmetry_report_hash": v1_hash,
-                }
-            )
-            manifest_hash = atomic_json(manifest_path, manifest)
-            metadata_root = zarr.open_group(
-                str(final / result_zarr_name(cfg.sigma_grid)), mode="a"
-            )
-            metadata_root.attrs.update(
-                {
-                    "weak_asymmetry_report_version": 1,
-                    "weak_asymmetry_report_hash": v1_hash,
-                    "manifest_hash": manifest_hash,
-                }
-            )
-            atomic_json(final / "COMPLETE", {"manifest_hash": manifest_hash})
-            with patch(
-                "jhtdb_pipeline.cq.compute_cq",
-                side_effect=AssertionError("Cq scan was not expected"),
-            ), patch(
-                "jhtdb_pipeline.weak_asymmetry.compute_weak_asymmetry",
-                side_effect=AssertionError("old weak metrics must be reused"),
-            ):
-                self.assertEqual(ensure_cq_result(relaxed_cfg, 1), final)
-            upgraded_weak = json.loads(weak_path.read_text(encoding="utf-8"))
-            self.assertEqual(upgraded_weak["report_version"], 2)
-            self.assertIn("ratio_p99", upgraded_weak["global"])
-            self.assertIn("ratio_max", upgraded_weak["global"])
             for name in (
                 "s_bar_qa.json",
                 "s_bar_global_totals.html",
@@ -448,7 +325,7 @@ class ProcessingTests(unittest.TestCase):
                 "weak_asymmetry.html",
             ):
                 (final / name).unlink()
-            self.assertEqual(process_center(cfg, 1), final)
+            self.assertEqual(process_full(cfg, 1), final)
             refreshed_s_bar = json.loads(
                 (final / "s_bar_qa.json").read_text(encoding="utf-8")
             )
@@ -464,179 +341,49 @@ class ProcessingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             cfg, _ = fixture(Path(temporary))
             final = cfg.result_path(1)
-            legacy = zarr.open_group(str(final / "center_result.zarr"), mode="w")
+            legacy = zarr.open_group(str(final / "obsolete_result.zarr"), mode="w")
             legacy.attrs["status"] = "complete"
             (final / "COMPLETE").write_text("{}\n", encoding="utf-8")
 
-            staging = process_center(cfg, 1)
+            staging = process_full(cfg, 1)
             self.assertTrue((final / "COMPLETE").is_file())
-            self.assertTrue((final / "center_result.zarr").is_dir())
+            self.assertTrue((final / "obsolete_result.zarr").is_dir())
             self.assertTrue((staging / result_zarr_name(cfg.sigma_grid)).is_dir())
 
             replaced = finalize_result(cfg, 1)
             self.assertEqual(replaced, final)
-            self.assertFalse((final / "center_result.zarr").exists())
+            self.assertFalse((final / "obsolete_result.zarr").exists())
             self.assertTrue((final / result_zarr_name(cfg.sigma_grid)).is_dir())
             self.assertIn("pi", open_complete_result(final))
 
-    def test_backfill_reuses_validated_filtered_velocity_workspace(self) -> None:
+    def test_restart_reuses_validated_filtered_velocity_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cfg, _ = fixture(Path(temporary))
             cfg = replace(cfg, cleanup_scratch_on_success=False)
-            process_center(cfg, 1)
+            process_full(cfg, 1)
             final = finalize_result(cfg, 1)
             root = zarr.open_group(
                 str(final / result_zarr_name(cfg.sigma_grid)), mode="a"
             )
-            root.attrs["result_schema_version"] = 3
+            (final / "COMPLETE").unlink()
+            shutil.rmtree(final)
 
             with patch(
                 "jhtdb_pipeline.processing.filter_field",
                 wraps=processing_filter_field,
             ) as filtered:
-                staging = process_center(cfg, 1)
+                staging = process_full(cfg, 1)
 
             qa = json.loads((staging / "qa.json").read_text(encoding="utf-8"))
             self.assertTrue(qa["reuse"]["filtered_velocity"])
             self.assertEqual(filtered.call_count, 9)
 
-    def test_v3_backfill_reuses_raw_cache_and_validates_center_overlap(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            cfg, _ = fixture(Path(temporary))
-            process_center(cfg, 1)
-            final = finalize_result(cfg, 1)
-            zarr_path = final / result_zarr_name(cfg.sigma_grid)
-            current = open_complete_result(final)
-            crop = cfg.crop_slices_zyx
-            old_fields = {}
-            for name in (
-                "velocity",
-                "gradient",
-                "velocity_bar",
-                "gradient_bar",
-            ):
-                old_fields[name] = np.asarray(current[name][:])
-            old_fields["regime"] = np.asarray(current["regime"][crop])
-            for name in ("work_full", "work_resolved", "pi", "s_bar"):
-                old_fields[name] = np.asarray(current[name][crop])
-            del current
-
-            old = zarr.open_group(str(zarr_path), mode="w")
-            old.attrs.update(
-                {
-                    "status": "complete",
-                    "result_schema_version": 3,
-                    "sigma_grid": cfg.sigma_grid,
-                }
-            )
-            for name, values in old_fields.items():
-                old.create_dataset(
-                    name,
-                    data=values,
-                    chunks=tuple(min(4, size) for size in values.shape),
-                    dtype=values.dtype,
-                )
-            atomic_json(
-                final / "manifest.json",
-                {"schema_version": 3, "time_index": 1, "sigma_grid": 1.0},
-            )
-
-            upgraded = backfill_full_fields(cfg, 1)
-
-            self.assertEqual(upgraded, final)
-            result = open_complete_result(final)
-            self.assertEqual(result.attrs["result_schema_version"], 6)
-            self.assertEqual(result["work_full"].shape, cfg.full_shape_zyx)
-            self.assertEqual(result["regime"].shape, cfg.full_shape_zyx)
-            qa = json.loads((final / "qa.json").read_text(encoding="utf-8"))
-            overlap = qa["reuse"]["previous_center_overlap"]
-            self.assertTrue(overlap["passed"])
-            self.assertEqual(overlap["scope"], "stored_center_crop")
-
-    def test_v4_full_regime_backfill_uses_persistent_work_fields_only(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            cfg, _ = fixture(Path(temporary))
-            process_center(cfg, 1)
-            final = finalize_result(cfg, 1)
-            zarr_path = final / result_zarr_name(cfg.sigma_grid)
-            root = zarr.open_group(str(zarr_path), mode="a")
-            expected = np.asarray(root["regime"][:])
-            center = np.asarray(root["regime"][cfg.crop_slices_zyx])
-            chunks = tuple(min(4, size) for size in center.shape)
-            compressor = root["regime"].compressor
-            del root["regime"]
-            root.create_dataset(
-                "regime", data=center, chunks=chunks, dtype="u1",
-                compressor=compressor,
-            )
-            scopes = dict(root.attrs["field_scopes"])
-            scopes["regime"] = "center_crop"
-            root.attrs.update(
-                {"result_schema_version": 4, "field_scopes": scopes}
-            )
-            manifest_path = final / "manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["schema_version"] = 4
-            manifest["field_scopes"]["regime"] = "center_crop"
-            manifest["fields"]["regime"]["shape"] = list(cfg.result_shape_zyx)
-            for key in (
-                "cq_passed",
-                "cq_report_version",
-                "cq_report_hash",
-                "weak_asymmetry_passed",
-                "weak_asymmetry_report_version",
-                "weak_asymmetry_report_hash",
-            ):
-                manifest.pop(key, None)
-                root.attrs.pop(key, None)
-            atomic_json(manifest_path, manifest)
-            (final / "cq.json").unlink()
-            (final / "cq.html").unlink()
-            (final / "weak_asymmetry.json").unlink()
-            (final / "weak_asymmetry.html").unlink()
-            shutil.rmtree(cfg.raw_store_path(1))
-
-            upgraded = backfill_full_regime(cfg, 1)
-
-            self.assertEqual(upgraded, final)
-            current = zarr.open_group(str(zarr_path), mode="r")
-            self.assertEqual(current.attrs["result_schema_version"], 6)
-            self.assertEqual(current["regime"].shape, cfg.full_shape_zyx)
-            np.testing.assert_array_equal(current["regime"][:], expected)
-            qa = json.loads((final / "qa.json").read_text(encoding="utf-8"))
-            self.assertEqual(qa["regime_scope"], "full_domain")
-            self.assertEqual(qa["regime_point_count"], 16**3)
-            self.assertEqual(
-                qa["reuse"]["regime"],
-                "persistent_schema_v4_full_work_fields",
-            )
-            self.assertTrue((final / "cq.json").is_file())
-            self.assertTrue((final / "cq.html").is_file())
-            self.assertTrue((final / "weak_asymmetry.json").is_file())
-            self.assertTrue((final / "weak_asymmetry.html").is_file())
-            self.assertFalse(any(final.glob(".*regime-v4-backup*")))
-
-    def test_backfill_never_fetches_when_temporary_raw_cache_is_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            cfg, _ = fixture(Path(temporary))
-            final = cfg.result_path(1)
-            final.mkdir(parents=True)
-            atomic_json(final / "COMPLETE", {})
-            atomic_json(
-                final / "manifest.json",
-                {"schema_version": 3, "time_index": 1, "sigma_grid": 1.0},
-            )
-            raw_store = cfg.raw_store_path(1)
-            shutil.rmtree(raw_store)
-
-            with self.assertRaisesRegex(RuntimeError, "never fetches JHTDB"):
-                backfill_full_fields(cfg, 1)
 
     def test_divergence_failure_never_creates_complete_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cfg, _ = fixture(Path(temporary), compressible=True)
             with self.assertRaisesRegex(RuntimeError, "divergence"):
-                process_center(cfg, 1)
+                process_full(cfg, 1)
             self.assertFalse((cfg.result_path(1) / "COMPLETE").exists())
             report = json.loads(
                 (cfg.staging_result_path(1) / "divergence.json").read_text(

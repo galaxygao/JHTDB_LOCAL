@@ -18,8 +18,8 @@ class CqTests(unittest.TestCase):
         cfg = replace(
             load_config("configs/pipeline.yaml"),
             grid_shape=(2, 2, 2),
-            crop_start=(0, 0, 0),
-            crop_shape=(2, 2, 2),
+
+
             state_root=root_path / "state",
             run_root=root_path / "runs",
             result_root=root_path / "results",

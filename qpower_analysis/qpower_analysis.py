@@ -104,7 +104,7 @@ def preflight_frame(frame: dict[str, Any]) -> dict[str, Any]:
         gradient_store = Path(gradient_path)
         if gradient_store.is_dir():
             attrs = zarr.open_group(str(gradient_store), mode="r").attrs
-            if attrs.get("source") == "JHTDB getData":
+            if attrs.get("source") in ("JHTDB getData", "local periodic fd4"):
                 if attrs.get("status") != "validated":
                     raise PreflightError(f"{label} managed pressure-gradient cache has not passed validation")
                 if attrs.get("time_index") != frame.get("frame") or attrs.get("physical_time") != frame.get("time"):
@@ -171,6 +171,22 @@ def core_fields(velocity: np.ndarray, gradient: np.ndarray) -> tuple[np.ndarray,
     q = -np.einsum("izyx,izyx->zyx", velocity, gradient, optimize=True)
     u2 = np.einsum("izyx,izyx->zyx", velocity, velocity, optimize=True)
     return q, u2, float(np.sqrt(np.mean(q * q))), float(np.mean(u2))
+
+
+def random_overlap_baseline(a_count: int, b_count: int, total: int, intersection: int) -> dict[str, float]:
+    """Analytic independent random subsets with the observed subset sizes."""
+    if total <= 0 or not (0 <= a_count <= total and 0 <= b_count <= total):
+        raise ValueError("Invalid domain or event counts")
+    if not max(0, a_count + b_count - total) <= intersection <= min(a_count, b_count):
+        raise ValueError("Invalid intersection count")
+    a_fraction, b_fraction = a_count / total, b_count / total
+    ratio = total * intersection / (a_count * b_count) if a_count and b_count else math.nan
+    return {
+        "random_p_a_given_b": a_fraction if b_count else math.nan,
+        "random_p_b_given_a": b_fraction if a_count else math.nan,
+        "p_a_given_b_over_random": ratio,
+        "p_b_given_a_over_random": ratio,
+    }
 
 
 def event_mask(q: np.ndarray, q_rms: float, alpha: float, mode: str) -> np.ndarray:
@@ -296,7 +312,7 @@ def _gradient_from_refs(info: dict[str, Any], config: dict[str, Any]) -> tuple[n
 def run(config: dict[str, Any], infos: list[dict[str, Any]]) -> Path:
     # Preflight has completed before this function is entered or creates output.
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    root = Path(config.get("output_root", "outputs/qpower_analysis")) / run_id
+    root = Path(config.get("output_root", "qpower_analysis/output")) / run_id
     if root.exists(): raise RuntimeError(f"refusing to overwrite {root}")
     root.mkdir(parents=True); (root / "aggregate").mkdir()
     (root / "config_used.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -331,6 +347,7 @@ def run(config: dict[str, Any], infos: list[dict[str, Any]]) -> Path:
         for a, b in pairs:
             aa, bb = float(a), float(b); am, bm = a_masks[aa], b_masks[bb]; inter = am & bm; ac, bc, ic = int(am.sum()), int(bm.sum()), int(inter.sum())
             overlap_rows.append({"frame": frame_cfg["frame"], "time": frame_cfg["time"], "alpha": aa, "beta": bb, "a_count": ac, "b_count": bc, "intersection_count": ic, "a_fraction": ac/am.size, "b_fraction": bc/bm.size, "intersection_fraction": ic/am.size, "p_a_given_b": ic/bc if bc else math.nan, "p_b_given_a": ic/ac if ac else math.nan, "event_mode": mode})
+            overlap_rows[-1].update(random_overlap_baseline(ac, bc, am.size, ic))
             region_html(am, bm, frame_dir / "overlays" / f"alpha_{aa}_beta_{bb}.html", (f"A {mode}, alpha={aa}", f"B beta={bb}"), stride)
         metadata = {"frame": frame_cfg["frame"], "gradient_source": gradient_source, "shape_zyx": list(q.shape), "conditional_points_above_upper": int(np.sum(u2/u2_mean > upper)), "conditional_upper": upper}
         (frame_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")

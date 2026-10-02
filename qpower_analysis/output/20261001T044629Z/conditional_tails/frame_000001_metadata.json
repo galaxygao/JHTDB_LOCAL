@@ -1,0 +1,46 @@
+{
+  "frame": 1,
+  "time": 0.0,
+  "grid_count": 1073741824,
+  "central_probability": 0.95,
+  "quantiles": "interpolated from 131072 equal-width full-grid histogram bins; approximate boundaries",
+  "statistics": "exact membership and float64 sums over every grid point; no sampling",
+  "volume": "count / full-domain count (bin mass, not density)",
+  "plots": {
+    "u2_given_q": {
+      "lower": -1.8153225385071745,
+      "upper": 1.8593920511194173,
+      "minimum": -86.5435022418173,
+      "maximum": 111.34297418330583,
+      "quantile_histogram_bin_width": 0.0015097709975293583,
+      "volumes": {
+        "lower_tail": 0.02499991748481989,
+        "center": 0.95000019390136,
+        "upper_tail": 0.024999888613820076
+      }
+    },
+    "q_given_u2": {
+      "lower": 0.08013034912779261,
+      "upper": 2.722448643091755,
+      "minimum": 1.0504104810331194e-06,
+      "maximum": 8.648154097806485,
+      "quantile_histogram_bin_width": 6.598148991479949e-05,
+      "volumes": {
+        "lower_tail": 0.02500001061707735,
+        "center": 0.9499999852851033,
+        "upper_tail": 0.02500000409781933
+      }
+    }
+  },
+  "value_range": {
+    "probabilities": [
+      0.25,
+      0.75
+    ],
+    "meaning": "central 50% of point values WITHIN each x bin; not mean confidence interval",
+    "method": "cached all-point histograms; interpolated quantiles for all bins",
+    "mean_and_x_bins": "unchanged from previous CSV; per-bin counts verified exactly",
+    "empty_bins": "NaN range; omitted from plot",
+    "spatial_resampling": false
+  }
+}

@@ -66,13 +66,11 @@ class PlanningTests(unittest.TestCase):
             sigma_grids=(1.0, 2.0, 3.0),
         )
         resources = resource_plan(batch_cfg)
-        self.assertEqual(resources["result_GiB"], 23.0)
-        self.assertEqual(resources["batch_result_GiB"], 69.0)
-        self.assertEqual(resources["shared_center_gradient_GiB"], 4.5)
-        self.assertEqual(resources["batch_persistent_GiB"], 85.5)
-        self.assertEqual(resources["v3_to_v6_peak_GiB"], 41.625)
-        self.assertEqual(resources["v4_regime_backfill_peak_GiB"], 29.125)
-        self.assertEqual(resources["batch_with_reserve_GiB"], 109.5)
+        self.assertEqual(resources["result_GiB"], 65.0)
+        self.assertEqual(resources["batch_result_GiB"], 195.0)
+        self.assertEqual(resources["shared_gradient_GiB"], 36.0)
+        self.assertEqual(resources["batch_persistent_GiB"], 243.0)
+        self.assertEqual(resources["batch_with_reserve_GiB"], 267.0)
 
 
 if __name__ == "__main__":

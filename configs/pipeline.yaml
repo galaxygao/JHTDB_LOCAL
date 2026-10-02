@@ -58,15 +58,15 @@ physics:
   # smooth_sharp 的唯一边缘宽度参数：跨 sigma 固定 alpha=w/k_c。
   sharp_edge_width_fraction: 0.1171875
 
-  # 仅永久保存中心滤波速度/梯度；生产实现固定要求 [256:768)^3。
-  crop_start: [256, 256, 256]  # [x0, y0, z0]
-  crop_shape: [512, 512, 512]  # [nx, ny, nz]
+
+
 
   # regime uncertain 阈值：epsilon=max(epsilon_abs, epsilon_rel*RMS(work))。
   epsilon_abs: 0.0
   epsilon_rel: 0.001
 
   # scipy FFT worker 数及按第一空间轴处理的 slab 宽度。
+  fft_cache_mode: memory  # 大内存机器；24 GB Mac 使用 pipeline.macos.yaml。
   fft_workers: 16
   fft_slab_width: 32
 

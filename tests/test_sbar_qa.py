@@ -17,8 +17,8 @@ def fixture(root_path: Path, *, contaminated: bool = False, zero_pi: bool = Fals
     cfg = replace(
         load_config("configs/pipeline.yaml"),
         grid_shape=(4, 4, 4),
-        crop_start=(0, 0, 0),
-        crop_shape=(4, 4, 4),
+
+
     )
     root = zarr.open_group(str(root_path / "result.zarr"), mode="w")
     coordinates = np.arange(64, dtype=np.float32).reshape(4, 4, 4)

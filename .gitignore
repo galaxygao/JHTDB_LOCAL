@@ -5,6 +5,10 @@ __pycache__/
 .coverage
 .venv/
 .venv-mac/
+.venv-windows/
+.venv-linux/
+.local/
+.DS_Store
 .env
 .env.*
 .secrets/
@@ -23,3 +27,9 @@ results/
 
 # Reproducible local visualization products.
 pi_slices/output/
+
+# Subproject-local transient/cache data.
+*/.scratch/
+block_statistics/cache/
+qpower_analysis/output/**/*.npy
+configs/*.local.yaml
