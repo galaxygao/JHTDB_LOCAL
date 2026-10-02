@@ -33,3 +33,6 @@ pi_slices/output/
 block_statistics/cache/
 qpower_analysis/output/**/*.npy
 configs/*.local.yaml
+
+# Local reference paper.
+/tensor-geometry-in-the-turbulent-cascade.pdf
