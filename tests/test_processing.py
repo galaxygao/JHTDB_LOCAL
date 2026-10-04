@@ -21,6 +21,7 @@ from jhtdb_pipeline.physics import spectral_derivative, spectral_gaussian
 from jhtdb_pipeline.planning import Tile
 from jhtdb_pipeline.sbar_qa import ensure_sbar_result, run_sbar_qa
 from jhtdb_pipeline.processing import (
+    _copy_sampled_field,
     filter_field as processing_filter_field,
     finalize_result,
     process_batch,
@@ -73,6 +74,31 @@ def fixture(root: Path, *, compressible: bool = False):
 
 
 class ProcessingTests(unittest.TestCase):
+    def test_sampling_retains_original_grid_phase_across_chunks_and_odd_boundaries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cfg, _ = fixture(Path(temporary))
+            cfg = replace(cfg, grid_shape=(131, 130, 129))
+            source = np.arange(129 * 130 * 131, dtype=np.float32).reshape(129, 130, 131)
+            destination = zarr.open_array(
+                str(Path(temporary) / "sampled.zarr"), mode="w",
+                shape=(3, 3, *cfg.stored_shape_zyx("gradient")),
+                chunks=(1, 1, 64, 64, 64), dtype="<f4",
+            )
+            _copy_sampled_field(cfg, source, destination, (2, 1))
+            np.testing.assert_array_equal(destination[2, 1], source[::2, ::2, ::2])
+
+    def test_reader_rejects_sampling_metadata_with_wrong_grid_origin(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cfg, _ = fixture(Path(temporary))
+            process_full(cfg, 1)
+            final = finalize_result(cfg, 1)
+            root = zarr.open_group(str(final / result_zarr_name(cfg.sigma_grid)), mode="a")
+            sampling = dict(root.attrs["field_sampling"])
+            sampling["gradient"]["origin_xyz"] = [1, 1, 1]
+            root.attrs["field_sampling"] = sampling
+            with self.assertRaisesRegex(RuntimeError, "sampling metadata"):
+                open_complete_result(final)
+
     def test_smooth_sharp_batch_reuses_full_spectra_and_tracks_results(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cfg, _ = fixture(Path(temporary))
@@ -193,7 +219,7 @@ class ProcessingTests(unittest.TestCase):
                 sigma_grids=(1.0, 2.0, 3.0),
             )
             plan = resource_plan(batch_cfg)
-            expected_result_bytes = 16**3 * 65
+            expected_result_bytes = 8**3 * 12 * 4 + 16**3 * 17
             self.assertEqual(
                 plan["result_GiB"], expected_result_bytes / 1024**3
             )
@@ -222,19 +248,19 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(run_sbar_qa(cfg, 1)["scope"], "full_domain")
             result = open_complete_result(final)
             self.assertEqual(result["velocity"].shape, (3, 16, 16, 16))
-            self.assertEqual(result["gradient"].shape, (3, 3, 16, 16, 16))
+            self.assertEqual(result["gradient"].shape, (3, 3, 8, 8, 8))
             self.assertEqual(result["work_full"].shape, (16, 16, 16))
             self.assertEqual(result["regime"].shape, (16, 16, 16))
             np.testing.assert_allclose(result["velocity"][0], velocity[0])
             expected_filtered = spectral_gaussian(velocity[0], cfg.sigma_grid)
             np.testing.assert_allclose(
-                result["velocity_bar"][0], expected_filtered, rtol=2e-5, atol=2e-6
+                result["velocity_bar"][0], expected_filtered[::2, ::2, ::2], rtol=2e-5, atol=2e-6
             )
             expected_gradient = spectral_derivative(
                 velocity[0], 2, cfg.domain_length
             )
             np.testing.assert_allclose(
-                result["gradient"][0, 0], expected_gradient, rtol=2e-5, atol=2e-6
+                result["gradient"][0, 0], expected_gradient[::2, ::2, ::2], rtol=2e-5, atol=2e-6
             )
             self.assertTrue(np.all(np.isfinite(result["work_full"][:])))
             self.assertTrue(np.all(np.isfinite(result["work_resolved"][:])))
@@ -252,6 +278,7 @@ class ProcessingTests(unittest.TestCase):
                         spectral_gaussian(velocity[i] * velocity[j], cfg.sigma_grid)
                         - filtered[i] * filtered[j]
                     )
+            np.testing.assert_allclose(result["gradient_bar"][:], gradient_bar[:, :, ::2, ::2, ::2], rtol=3e-5, atol=3e-6)
             filtered_divergence = sum(gradient_bar[i, i] for i in range(3))
             self.assertEqual(
                 divergence["filtered"]["point_count"], int(np.prod(cfg.grid_shape))
@@ -282,7 +309,7 @@ class ProcessingTests(unittest.TestCase):
             self.assertFalse(cfg.workspace_path(1).exists())
             self.assertFalse(any(final.rglob("*.part-*")))
             manifest = json.loads((final / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["schema_version"], 7)
+            self.assertEqual(manifest["schema_version"], 8)
             self.assertEqual(manifest["field_scopes"]["regime"], "full_domain")
             self.assertEqual(manifest["s_bar_qa_report_version"], 3)
             self.assertIn("s_bar_qa_report_hash", manifest)

@@ -5,8 +5,10 @@ import json
 import os
 from pathlib import Path
 import numpy as np
-import zarr
-from conditional_tails import fields, quantile_from_hist, plot
+if __package__:
+    from .conditional_tails import fields, quantile_from_hist, plot, validated_fields
+else:
+    from conditional_tails import fields, quantile_from_hist, plot, validated_fields
 
 
 def value_edges(name,minimum,maximum):
@@ -60,12 +62,7 @@ def run(folder,coverage=.5,from_histograms=False):
             plans[direction]=dict(rows=rows,xname=xname,yname=yname,xedges=xedges,yedges=yedges,
                 histogram=np.zeros((len(rows),len(yedges)-1),dtype=np.int64),
                 exact={i:[] for i,r in enumerate(rows) if 0<r['count']<100})
-        roots=[zarr.open_group(frame[k],mode='r') for k in ('velocity_path','pressure_gradient_path')]
-        for root in roots:
-            if root.attrs.get('status')!='validated' or root.attrs.get('time_index')!=number or root.attrs.get('physical_time')!=frame['time']:
-                raise ValueError('Unvalidated or mismatched input')
-        u=roots[0][frame['velocity_key']];g=roots[1][frame['pressure_gradient_keys'][0]]
-        if u.shape!=g.shape:raise ValueError('Input shapes differ')
+        u,g=validated_fields(frame,frame['velocity_key'])
         if from_histograms:
             for direction,plan in plans.items():
                 with np.load(out/f'frame_{number:06d}_{direction}_value_histogram.npz') as saved:

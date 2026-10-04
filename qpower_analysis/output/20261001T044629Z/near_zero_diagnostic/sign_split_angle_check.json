@@ -1,0 +1,48 @@
+{
+  "q_rms": 3.177117347717285,
+  "u2_mean": 1.365438461303711,
+  "near_zero_interval": "0 < |q|/q_rms < 0.01, split by sign; optional high-speed subset u2 > mean(u2)",
+  "angle": "angle(u,-grad(P))",
+  "float32_q_zero_count": 12,
+  "method": "Full-grid scan, original float32 q/u2 selection, float64 geometric angle cast to float32 for exact NumPy quartiles",
+  "populations": {
+    "q_positive_near_zero": {
+      "count": 12967804,
+      "mean_force_angle_deg": 87.80878927584064,
+      "p25": 87.82760620117188,
+      "p50": 89.0948715209961,
+      "p75": 89.6473388671875,
+      "near_perpendicular_fraction": 0.9195524546792965
+    },
+    "q_negative_near_zero": {
+      "count": 12990060,
+      "mean_force_angle_deg": 92.17353597771586,
+      "p25": 90.3530502319336,
+      "p50": 90.90536499023438,
+      "p75": 92.1677017211914,
+      "near_perpendicular_fraction": 0.9206430917178212
+    },
+    "q_positive_near_zero_high_speed": {
+      "count": 3142177,
+      "mean_force_angle_deg": 89.1375814881825,
+      "p25": 89.03596496582031,
+      "p50": 89.55633544921875,
+      "p75": 89.81468200683594,
+      "near_perpendicular_fraction": 0.986702213147127
+    },
+    "q_negative_near_zero_high_speed": {
+      "count": 3147702,
+      "mean_force_angle_deg": 90.86517728510132,
+      "p25": 90.18585968017578,
+      "p50": 90.44513702392578,
+      "p75": 90.9669189453125,
+      "near_perpendicular_fraction": 0.9866928317864906
+    }
+  },
+  "old_angle_axis": {
+    "transformation": "q / q_rms; no subtraction, recentering or bin-index axis",
+    "minimum": 1.0000001192092896,
+    "first_visible_left": 1.0202608108520508,
+    "first_visible_right": 1.1537782952189446
+  }
+}

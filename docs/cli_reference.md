@@ -203,6 +203,22 @@ parser.add_argument('--from-histograms',action='store_true')
 parser.add_argument('--run-dir',required=True,type=Path)
 ```
 
+## qpower_analysis/lowest_q_bin_angles.py
+
+[实现](../qpower_analysis/lowest_q_bin_angles.py)
+
+```python
+parser.add_argument('--run-dir', type=Path, required=True)
+```
+
+## qpower_analysis/near_zero_diagnostic.py
+
+[实现](../qpower_analysis/near_zero_diagnostic.py)
+
+```python
+parser.add_argument('--run-dir', type=Path, required=True)
+```
+
 ## qpower_analysis/qpower_analysis.py
 
 [实现](../qpower_analysis/qpower_analysis.py)
@@ -220,16 +236,6 @@ parser.add_argument("--preflight-only", action="store_true")
 parser.add_argument("--job-dir", required=True, type=Path)
 parser.add_argument("--pipeline-config", default="configs/pipeline.yaml")
 parser.add_argument("--analysis-config", default="qpower_analysis/config.example.json")
-```
-
-## qpower_analysis/scripts/quickstart_qpower_subset.py
-
-[实现](../qpower_analysis/scripts/quickstart_qpower_subset.py)
-
-```python
-parser.add_argument('--config', type=Path, default=PROJECT / 'configs/pipeline.yaml')
-parser.add_argument('--shape-xyz', type=int, nargs=3, default=(128, 128, 64),
-                        metavar=('NX', 'NY', 'NZ'), help='Origin-aligned crop, multiples of 16')
 ```
 
 ## qpower_analysis/threshold_contributions.py
@@ -267,13 +273,13 @@ parser.add_argument(
     )
 ```
 
-## scripts/rebuild_v7.py
+## scripts/rebuild_result.py
 
-[实现](../scripts/rebuild_v7.py)
+[实现](../scripts/rebuild_result.py)
 
 ```python
-parser.add_argument('--config', required=True, help='Current v7-compatible YAML pointing at existing velocity inputs')
-parser.add_argument('--source-result', required=True, type=Path, help='Completed v6 or v7 result directory')
+parser.add_argument('--config', required=True, help='Current YAML pointing at existing velocity inputs')
+parser.add_argument('--source-result', required=True, type=Path, help='Completed v7 or v8 result directory')
 parser.add_argument('--result-root', required=True, type=Path, help='Separate destination root; never the source root')
 parser.add_argument('--execute', action='store_true', help='Validate full input and perform computation; default prints plan only')
 ```

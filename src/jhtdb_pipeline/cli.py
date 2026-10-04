@@ -113,14 +113,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _input_status(cfg) -> list[dict[str, object]]:
+    if not cfg.catalog_path.exists():
+        return []
+    with Catalog(cfg.catalog_path) as catalog:
+        return [
+            {**dict(row), "tiles": catalog.tile_progress(cfg.dataset, row["time_index"])}
+            for row in catalog.snapshots(cfg.dataset)
+        ]
+
+
 def _status(cfg) -> dict[str, object]:
-    inputs: list[dict[str, object]] = []
-    if cfg.catalog_path.exists():
-        with Catalog(cfg.catalog_path) as catalog:
-            for row in catalog.snapshots(cfg.dataset):
-                item = dict(row)
-                item["tiles"] = catalog.tile_progress(cfg.dataset, row["time_index"])
-                inputs.append(item)
+    inputs = _input_status(cfg)
     results: list[dict[str, object]] = []
     filter_batches: list[dict[str, object]] = []
     if cfg.result_root.exists():
@@ -160,20 +164,22 @@ def _status(cfg) -> dict[str, object]:
                 filter_batches.append(
                     {"manifest_path": str(path), "status": "invalid"}
                 )
-    pressure_inputs = []
-    if cfg.variable == "velocity":
-        pressure_cfg = field_config(cfg, "pressure_gradient")
-        if pressure_cfg.catalog_path.exists():
-            with Catalog(pressure_cfg.catalog_path) as catalog:
-                for row in catalog.snapshots(cfg.dataset):
-                    item = dict(row)
-                    item["tiles"] = catalog.tile_progress(cfg.dataset, row["time_index"])
-                    pressure_inputs.append(item)
+    pressure_inputs = (
+        _input_status(field_config(cfg, "pressure_gradient"))
+        if cfg.variable == "velocity" else []
+    )
     return {"field": cfg.variable, "inputs": inputs, "pressure_gradient_inputs": pressure_inputs,
             "results": results, "filter_batches": filter_batches}
 
 
-def _selected_sigmas(cfg, sigma_grid: float | None) -> tuple[float, ...]:
+def _selected_sigmas(
+    cfg, sigma_grid: float | None, sigma_grids: list[float] | None = None,
+) -> tuple[float, ...]:
+    """Resolve a CLI scale override, preserving configured scale order."""
+    if sigma_grid is not None and sigma_grids:
+        raise ValueError("use only one of --sigma-grid and --sigma-grids")
+    if sigma_grids:
+        return tuple(float(value) for value in sigma_grids)
     return (float(sigma_grid),) if sigma_grid is not None else cfg.sigma_grids
 
 
@@ -183,13 +189,7 @@ def _run_single_frame(
     sigma_grid: float | None,
     sigma_grids: list[float] | None = None,
 ) -> list[Path]:
-    if sigma_grid is not None and sigma_grids:
-        raise ValueError("use only one of --sigma-grid and --sigma-grids")
-    sigmas = (
-        tuple(float(value) for value in sigma_grids)
-        if sigma_grids
-        else _selected_sigmas(cfg, sigma_grid)
-    )
+    sigmas = _selected_sigmas(cfg, sigma_grid, sigma_grids)
     results: dict[float, Path] = {}
     pending = []
     for sigma in sigmas:
@@ -209,11 +209,15 @@ def _run_single_frame(
     return process_batch(cfg, time_index, sigmas)
 
 
+def _print_json(payload) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 def _print_paths(paths: list[Path]) -> None:
     if len(paths) == 1:
         print(paths[0])
     else:
-        print(json.dumps([str(path) for path in paths], ensure_ascii=False, indent=2))
+        _print_json([str(path) for path in paths])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -245,108 +249,43 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "doctor":
             report = doctor(cfg, args.time_index)
-            print(json.dumps(report, ensure_ascii=False, indent=2))
+            _print_json(report)
             return 0 if report["status"] == "ok" else 2
         elif args.command == "plan":
             payload = plan(cfg, args.time_index)
             payload["resources"] = resource_plan(cfg)
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            _print_json(payload)
         elif args.command == "smoke":
-            print(json.dumps(smoke(cfg, args.time_index), ensure_ascii=False, indent=2))
+            _print_json(smoke(cfg, args.time_index))
         elif args.command == "cache":
             print(fetch_snapshot(cfg, args.time_index))
             if args.with_pressure_gradient and args.field == "velocity":
                 print(fetch_snapshot(field_config(cfg, "pressure_gradient"), args.time_index))
         elif args.command == "validate-input":
-            print(
-                json.dumps(
-                    validate_snapshot(cfg, args.time_index),
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
-        elif args.command == "process-full":
-            _print_paths(
-                [
-                    process_full(cfg, args.time_index, sigma)
-                    for sigma in _selected_sigmas(cfg, args.sigma_grid)
-                ]
-            )
-        elif args.command == "finalize-result":
-            _print_paths(
-                [
-                    finalize_result(cfg, args.time_index, sigma)
-                    for sigma in _selected_sigmas(cfg, args.sigma_grid)
-                ]
-            )
-        elif args.command == "compute-cq":
+            _print_json(validate_snapshot(cfg, args.time_index))
+        elif args.command in ("process-full", "finalize-result", "compute-regime-pi"):
+            operation = {
+                "process-full": process_full,
+                "finalize-result": finalize_result,
+                "compute-regime-pi": run_regime_pi_statistics,
+            }[args.command]
+            sigmas = _selected_sigmas(cfg, args.sigma_grid, getattr(args, "sigma_grids", None))
+            _print_paths([operation(cfg, args.time_index, sigma) for sigma in sigmas])
+        elif args.command in ("compute-cq", "compute-weak-asymmetry", "qa-sbar"):
+            operation = {
+                "compute-cq": run_cq,
+                "compute-weak-asymmetry": run_weak_asymmetry,
+                "qa-sbar": run_sbar_qa,
+            }[args.command]
             reports = [
-                run_cq(cfg, args.time_index, sigma)
+                operation(cfg, args.time_index, sigma)
                 for sigma in _selected_sigmas(cfg, args.sigma_grid)
             ]
-            print(
-                json.dumps(
-                    reports[0] if len(reports) == 1 else reports,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
+            _print_json(reports[0] if len(reports) == 1 else reports)
             return 0 if all(report["passed"] for report in reports) else 2
-        elif args.command == "compute-weak-asymmetry":
-            reports = [
-                run_weak_asymmetry(cfg, args.time_index, sigma)
-                for sigma in _selected_sigmas(cfg, args.sigma_grid)
-            ]
-            print(
-                json.dumps(
-                    reports[0] if len(reports) == 1 else reports,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
-            return 0 if all(report["passed"] for report in reports) else 2
-        elif args.command == "qa-sbar":
-            reports = [
-                run_sbar_qa(cfg, args.time_index, sigma)
-                for sigma in _selected_sigmas(cfg, args.sigma_grid)
-            ]
-            print(
-                json.dumps(
-                    reports[0] if len(reports) == 1 else reports,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
-            return 0 if all(report["passed"] for report in reports) else 2
-        elif args.command == "compute-regime-pi":
-            if args.sigma_grid is not None and args.sigma_grids:
-                raise ValueError("use only one of --sigma-grid and --sigma-grids")
-            sigmas = (
-                tuple(float(value) for value in args.sigma_grids)
-                if args.sigma_grids
-                else _selected_sigmas(cfg, args.sigma_grid)
-            )
-            _print_paths(
-                [
-                    run_regime_pi_statistics(cfg, args.time_index, sigma)
-                    for sigma in sigmas
-                ]
-            )
         elif args.command == "process-batch":
-            if args.sigma_grid is not None and args.sigma_grids:
-                raise ValueError("use only one of --sigma-grid and --sigma-grids")
-            sigmas = (
-                tuple(float(value) for value in args.sigma_grids)
-                if args.sigma_grids
-                else _selected_sigmas(cfg, args.sigma_grid)
-            )
-            _print_paths(
-                process_batch(
-                    cfg,
-                    args.time_index,
-                    sigmas,
-                )
-            )
+            sigmas = _selected_sigmas(cfg, args.sigma_grid, args.sigma_grids)
+            _print_paths(process_batch(cfg, args.time_index, sigmas))
         elif args.command == "single-frame":
             if args.with_pressure_gradient:
                 fetch_snapshot(field_config(cfg, "pressure_gradient"), args.time_index)
@@ -356,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         elif args.command == "status":
-            print(json.dumps(_status(cfg), ensure_ascii=False, indent=2))
+            _print_json(_status(cfg))
         elif args.command == "gui":
             environment = os.environ.copy()
             environment["JHTDB_PIPELINE_CONFIG"] = str(Path(args.config).resolve())

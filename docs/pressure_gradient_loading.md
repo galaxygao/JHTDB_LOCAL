@@ -52,8 +52,8 @@ Gradient components are `dPdx,dPdy,dPdz`, for JHTDB kinematic pressure `P=p/rho`
 Dataset, frame, physical time, grid shape, component order, operator, derivative
 method, checksums, and validation status are persisted. Existing velocity
 manifest hashes and processed results are not changed by pressure acquisition.
-Velocity gradients remain in `results/t000001_shared_full/full_raw.zarr/gradient`
-with full-domain scope and spectral differentiation provenance.
+Velocity gradients remain in `results/t000001_shared_stride2/sampled_raw.zarr/gradient`
+with stride-2 sampling across the full domain and full-grid spectral differentiation provenance. Pressure gradients retain all original grid points.
 
 All network requests share the existing `jhtdb-request.lock`. Pressure requests
 use 128x128x64 grid-point blocks (1048576 points), one request at a time, with

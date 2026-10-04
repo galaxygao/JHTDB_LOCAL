@@ -35,6 +35,22 @@ def bin_statistics(x,y,edges):
     return count,sums
 
 
+def validated_fields(frame, velocity_key, *, metadata_error='Unvalidated or mismatched input'):
+    """Open a matching validated velocity/gradient frame without loading full arrays."""
+    roots = [zarr.open_group(frame[key], mode='r')
+             for key in ('velocity_path', 'pressure_gradient_path')]
+    for root in roots:
+        if (root.attrs.get('status') != 'validated'
+                or root.attrs.get('time_index') != int(frame['frame'])
+                or root.attrs.get('physical_time') != frame['time']):
+            raise ValueError(metadata_error)
+    velocity = roots[0][velocity_key]
+    gradient = roots[1][frame['pressure_gradient_keys'][0]]
+    if velocity.shape != gradient.shape:
+        raise ValueError('Input shapes differ')
+    return velocity, gradient
+
+
 def fields(velocity,gradient,qr,um):
     chunks=tuple(min(128,n) for n in velocity.shape[1:])
     blocks=list(spatial_slices(velocity.shape[1:],chunks))
@@ -108,12 +124,7 @@ def run(folder):
     for frame in config['frames']:
         number=int(frame['frame']); summary=summaries[number]
         qr,um=float(summary['q_rms']),float(summary['u2_mean'])
-        roots=[zarr.open_group(frame[k],mode='r') for k in ('velocity_path','pressure_gradient_path')]
-        for root in roots:
-            if root.attrs.get('status')!='validated' or root.attrs.get('time_index')!=number or root.attrs.get('physical_time')!=frame['time']:
-                raise ValueError('Unvalidated or mismatched input')
-        u=roots[0][frame.get('velocity_key','velocity')];g=roots[1][frame['pressure_gradient_keys'][0]]
-        if u.shape!=g.shape:raise ValueError('Input shapes differ')
+        u,g=validated_fields(frame,frame.get('velocity_key','velocity'))
         grid_count=int(np.prod(u.shape[1:]))
         fine_edges={}
         for name,scale in (('q',qr),('u2',um)):

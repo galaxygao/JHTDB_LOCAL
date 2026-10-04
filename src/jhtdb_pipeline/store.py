@@ -10,7 +10,7 @@ import zarr
 from numcodecs import Blosc
 from numcodecs import blosc
 
-from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
+from .config import READABLE_RESULT_SCHEMAS, RESULT_SCHEMA_VERSION, SAMPLED_FIELDS, PipelineConfig, field_sampling, result_zarr_name
 from .planning import Tile
 
 
@@ -105,14 +105,10 @@ def create_result_group(
     staging.mkdir(parents=True, exist_ok=True)
     path = staging / result_zarr_name(sigma_grid)
     root = zarr.open_group(str(path), mode="w" if overwrite else "a")
-    nz, ny, nx = cfg.full_shape_zyx
-    full_nz, full_ny, full_nx = cfg.full_shape_zyx
+    nz, ny, nx = cfg.stored_shape_zyx("velocity_bar")
     cz, cy, cx = (min(64, nz), min(64, ny), min(64, nx))
-    full_chunks = (
-        min(64, full_nz),
-        min(64, full_ny),
-        min(64, full_nx),
-    )
+    full_shape = cfg.full_shape_zyx
+    spatial_chunks = tuple(min(64, size) for size in full_shape)
     codec = compressor(cfg)
     root.attrs.update(
         {
@@ -134,11 +130,12 @@ def create_result_group(
             "components": ["ux", "uy", "uz"],
             "derivative_components": ["x", "y", "z"],
             "full_shape_xyz": list(cfg.grid_shape),
+            "field_sampling": cfg.field_sampling,
             "field_scopes": {
                 "velocity": "full_domain",
-                "gradient": "full_domain",
-                "velocity_bar": "full_domain",
-                "gradient_bar": "full_domain",
+                "gradient": "full_domain_stride2",
+                "velocity_bar": "full_domain_stride2",
+                "gradient_bar": "full_domain_stride2",
                 "regime": "full_domain",
                 "work_full": "full_domain",
                 "work_resolved": "full_domain",
@@ -158,12 +155,12 @@ def create_result_group(
     for name in ("work_full", "work_resolved", "pi", "s_bar"):
         root.require_dataset(
             name,
-            shape=(full_nz, full_ny, full_nx),
-            chunks=full_chunks,
+            shape=full_shape,
+            chunks=spatial_chunks,
             dtype="<f4", compressor=codec, fill_value=np.nan,
         )
     root.require_dataset(
-        "regime", shape=(full_nz, full_ny, full_nx), chunks=full_chunks,
+        "regime", shape=full_shape, chunks=spatial_chunks,
         dtype="u1", compressor=codec, fill_value=0,
     )
     return root
@@ -182,9 +179,9 @@ def create_shared_gradient_group(
         else cfg.shared_result_path(time_index)
     )
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "full_raw.zarr"
+    path = directory / "sampled_raw.zarr"
     root = zarr.open_group(str(path), mode="w" if overwrite else "a")
-    nz, ny, nx = cfg.full_shape_zyx
+    nz, ny, nx = cfg.stored_shape_zyx("gradient")
     chunks = (1, 1, min(64, nz), min(64, ny), min(64, nx))
     root.attrs.update(
         {
@@ -193,7 +190,8 @@ def create_shared_gradient_group(
             "time_index": time_index,
             "physical_time": cfg.physical_time(time_index),
             "full_shape_xyz": list(cfg.grid_shape),
-            "field_scopes": {"gradient": "full_domain"},
+            "field_scopes": {"gradient": "full_domain_stride2"},
+            "field_sampling": {"gradient": cfg.field_sampling["gradient"]},
             "gradient_axis_order": [
                 "velocity_component", "derivative_component", "z", "y", "x"
             ],
@@ -236,6 +234,67 @@ class CompositeResult:
         return iter(self.keys())
 
 
+def chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int:
+    """Number of chunks, including a partial chunk at each boundary."""
+    counts = [(size + chunk - 1) // chunk for size, chunk in zip(shape, chunks)]
+    return int(np.prod(counts, dtype=np.int64))
+
+
+def report_summary(
+    report: dict[str, Any], report_hash: str, **details: Any
+) -> dict[str, Any]:
+    """Common QA summary fields, followed by report-specific metrics."""
+    return {
+        "passed": report["passed"],
+        "scope": report["scope"],
+        "report_version": report["report_version"],
+        "report_hash": report_hash,
+        **details,
+    }
+
+
+def report_metadata(
+    name: str, report: dict[str, Any], report_hash: str
+) -> dict[str, Any]:
+    """Prefixed report fields shared by result manifests and Zarr attributes."""
+    return {
+        f"{name}_passed": report["passed"],
+        f"{name}_report_version": report["report_version"],
+        f"{name}_report_hash": report_hash,
+    }
+
+
+def load_chained_report(
+    result_dir: Path, root: Any, name: str, version: int, *, html_name: str | None = None,
+) -> dict[str, Any] | None:
+    """Read a QA report only when its version and complete hash chain match."""
+    report_path = result_dir / f"{name}.json"
+    manifest_path = result_dir / "manifest.json"
+    complete_path = result_dir / "COMPLETE"
+    html_path = result_dir / (html_name or f"{name}.html")
+    if not all(path.is_file() for path in (report_path, html_path, manifest_path, complete_path)):
+        return None
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        complete = json.loads(complete_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    report_hash = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    valid = (
+        report.get("report_version") == version
+        and report.get("scope") == "full_domain"
+        and manifest.get(f"{name}_report_version") == version
+        and manifest.get(f"{name}_report_hash") == report_hash
+        and root.attrs.get(f"{name}_report_version") == version
+        and root.attrs.get(f"{name}_report_hash") == report_hash
+        and root.attrs.get("manifest_hash") == manifest_hash
+        and complete.get("manifest_hash") == manifest_hash
+    )
+    return report if valid else None
+
+
 def spatial_slices(shape: tuple[int, ...], chunk_shape: tuple[int, ...]) -> Iterator[tuple[slice, ...]]:
     if len(shape) != len(chunk_shape):
         raise ValueError("shape and chunk_shape ranks differ")
@@ -267,14 +326,29 @@ def hash_zarr_array(array: Any) -> tuple[str, int, float, float]:
     return hasher.hexdigest(), byte_count, minimum, maximum
 
 
+def array_metadata(array: Any) -> dict[str, Any]:
+    """Full chunk-streamed hash, shape, storage format and finite-value bounds."""
+    digest, byte_count, minimum, maximum = hash_zarr_array(array)
+    return {
+        "shape": list(array.shape),
+        "dtype": str(np.dtype(array.dtype)),
+        "chunks": list(array.chunks),
+        "sha256": digest,
+        "byte_count": byte_count,
+        "minimum": minimum,
+        "maximum": maximum,
+    }
+
+
 def open_complete_result(path: Path):
     if not (path / "COMPLETE").is_file():
         raise RuntimeError(f"result is not complete: {path}")
     manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
-    if manifest.get("schema_version") != RESULT_SCHEMA_VERSION:
-        raise RuntimeError("result requires full-domain schema v7; rebuild from validated velocity")
+    schema = manifest.get("schema_version")
+    if schema not in READABLE_RESULT_SCHEMAS:
+        raise RuntimeError("result requires schema v7 or v8; rebuild from validated velocity")
     root = zarr.open_group(str(path / result_zarr_name(float(manifest["sigma_grid"]))), mode="r")
-    if root.attrs.get("status") != "complete" or root.attrs.get("result_schema_version") != RESULT_SCHEMA_VERSION:
+    if root.attrs.get("status") != "complete" or root.attrs.get("result_schema_version") != schema:
         raise RuntimeError(f"result metadata is incomplete or outdated: {path}")
     references = json.loads((path / "shared_refs.json").read_text(encoding="utf-8"))
     shared_path = Path(references["shared_gradient_store"])
@@ -289,15 +363,22 @@ def open_complete_result(path: Path):
         or raw_root.attrs.get("manifest_hash") != reference_hash
         or shared_root.attrs.get("input_manifest_hash") != reference_hash
         or shared_root.attrs.get("status") != "complete"
-        or shared_root.attrs.get("result_schema_version") != RESULT_SCHEMA_VERSION
+        or shared_root.attrs.get("result_schema_version") != schema
     ):
         raise RuntimeError("result and shared inputs have different or incomplete metadata")
     result = CompositeResult(root, {"velocity": raw_root["velocity"], "gradient": shared_root["gradient"]})
-    shape = tuple(reversed(manifest["full_shape_xyz"]))
+    sampling = field_sampling(manifest["full_shape_xyz"], schema)
+    if schema == 8 and (
+        manifest.get("field_sampling") != sampling
+        or root.attrs.get("field_sampling") != sampling
+        or shared_root.attrs.get("field_sampling") != {"gradient": sampling["gradient"]}
+    ):
+        raise RuntimeError("result sampling metadata does not match the original grid")
     for name in ("velocity", "gradient", "velocity_bar", "gradient_bar", "work_full", "work_resolved", "pi", "s_bar", "regime"):
         if name not in result:
             raise RuntimeError(f"result field is missing: {name}")
         prefix = (3, 3) if name in ("gradient", "gradient_bar") else (3,) if name in ("velocity", "velocity_bar") else ()
+        shape = tuple(reversed(sampling[name]["shape_xyz"]))
         if tuple(result[name].shape) != prefix + shape:
-            raise RuntimeError(f"result field is not full-domain: {name}")
+            raise RuntimeError(f"result field has an unexpected storage shape: {name}")
     return result

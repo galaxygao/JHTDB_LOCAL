@@ -32,6 +32,7 @@ pi_slices/output/
 */.scratch/
 block_statistics/cache/
 qpower_analysis/output/**/*.npy
+qpower_analysis/output/**/angle_values.npz
 configs/*.local.yaml
 
 # Local reference paper.

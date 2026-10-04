@@ -100,15 +100,16 @@ Pi_LES = -pi
 正式完整结果。batch manifest 会记录所有 sigma 的路径和完成状态；再次运行时只有参数、
 输入 manifest 和 schema 都匹配的结果才复用。
 
-不要手动编辑 `.zattrs`、`manifest.json` 或 `COMPLETE`。当前只读写 v7 全点结果；[更新工具](../../docs/data_versions.md) 从完整已验证速度重建 v6/v7 到独立 v7 目录。
+不要手动编辑 `.zattrs`、`manifest.json` 或 `COMPLETE`。当前读取 v7/v8，写入 v8；[重建工具](../../docs/data_versions.md) 从完整已验证速度重建到独立结果目录。
 
 
-## 全点存储与磁盘 FFT
+## 全域计算、步长 2 向量存储与磁盘 FFT
 
 - 原始速度：`state/inputs/tNNNNNN/velocity_cache.zarr/velocity`。
-- 完整原始梯度：`results/tNNNNNN_shared_full/full_raw.zarr/gradient`。
+- 原始梯度：`results/tNNNNNN_shared_stride2/sampled_raw.zarr/gradient`，每轴步长 2。
 - 每尺度结果：`<result_id>/full_result_sigma_<sigma>.zarr`。
-- 所有数组的空间维度都是完整网格；所有字段的 `field_scopes` 都为 `full_domain`。
+- 原始梯度、滤波速度、滤波梯度保存 `[::2,::2,::2]`，空间维度 `512³`，scope 为 `full_domain_stride2`；原始速度输入和所有标量场完整 `1024³`，scope 为 `full_domain`。
+- `field_sampling` 逐字段记录原网格 origin、stride 与 shape；采样起点固定为 0，周期域均匀覆盖。GUI 速度对比在相同原网格点读取两场，图轴和切片索引使用原网格坐标。
 - `process-full` 计算单尺度，`finalize-result` 提交；`process-batch` 保留跨尺度计算复用。
 - `disk_fft.py` 为 memmap 模式提供逐轴全长度 FFT。九个原始梯度、十二个源频谱在同一 batch
   只生成一次；径向滤波写入独立磁盘临时频谱，不修改共享频谱。每个 slab 保留完整被变换轴。

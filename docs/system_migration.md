@@ -79,7 +79,7 @@ PY
 
 `shared_refs.json` 中存在绝对路径；manifest、QA、子项目 config_used 的路径也可能包含旧盘符。当前没有就地重写整个 provenance/hash 链的受支持工具。**改 YAML 只改变后续路径选择，不能修复现有 shared_refs。**
 
-相同 OS、相同绝对布局可完整复制 state 与 result 后用 `open_complete_result` 验证；跨 OS 或不同布局，推荐迁入已验证速度，再按 [版本更新](data_versions.md) 的 v7→v7 或 v6→v7 工具重建到独立结果目录。原结果保留供对照。不要手改 COMPLETE 或 manifest hash 来绕过检查。
+相同 OS、相同绝对布局可完整复制 state 与 result 后用 `open_complete_result` 验证；跨 OS 或不同布局，推荐迁入已验证速度，再按 [全域重建](data_versions.md) 的 v7/v8→v8 工具重建到独立结果目录。原结果保留供对照。不要手改 COMPLETE 或 manifest hash 来绕过检查。
 
 ```python
 from pathlib import Path

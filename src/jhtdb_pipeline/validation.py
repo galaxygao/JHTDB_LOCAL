@@ -29,6 +29,18 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> str:
     return digest
 
 
+def update_report_metadata(
+    result_dir: Path, root: Any, metadata: dict[str, Any]
+) -> None:
+    """Refresh manifest, attrs, then COMPLETE; caller holds the QA metadata lock."""
+    manifest_path = result_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(metadata)
+    manifest_hash = atomic_json(manifest_path, manifest)
+    root.attrs.update({**metadata, "manifest_hash": manifest_hash})
+    atomic_json(result_dir / "COMPLETE", {"manifest_hash": manifest_hash})
+
+
 def _seam_statistics(array: Any) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
     axes = {

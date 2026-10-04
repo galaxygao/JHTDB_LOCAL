@@ -37,6 +37,10 @@ residual   = W_full - W_resolved + pi - s_bar
 
 `process_full` 写 staging：滤波速度，原/滤波梯度，两个 work，六个对称 τ 贡献累加 pi 和 SGS transport，再求 s_bar，计算散度和 regime。浮点场保存 float32，统计大量使用 float64 累加。这里没有抽样减少科学格点；GUI/图片的显示采样另行记录。
 
+字段 I/O 分两种遍历：`store.spatial_slices` 按 Zarr chunk 的 z/y/x 顺序遍历；`physics.spatial_slabs` 按 z 轴递增遍历完整 y/x 平面，最后一片允许不足 slab 宽度。FFT 的 `axis_batches` 在变换 y/x 轴时复用 z slab，在变换 z 轴时仍沿 y 分片，保证完整变换轴。`ProductView` 只在读取切片时将同 shape 的两个源转换为 float32 后相乘，不建立全域乘积；`_accumulate_zarr_product` 将它交给 `_accumulate_zarr`，按原 chunk 顺序执行 float32 的 `current + left*right`。memmap 的原位乘积加减和 `release_pages` 顺序保留；散度复用 `_accumulate_full` 顺序累加三个 float32 对角梯度。
+
+`_filter_with_optional_spectrum` 在各滤波分支内选择原场或缓存频谱及对应 operation，再以共同参数调用；smooth-sharp memmap 分支仍独立管理磁盘频谱生命周期。`store.array_metadata` 对共享梯度和单尺度字段使用同一套 chunk 流式 hash 与格式描述。正式字段的 component 前缀从 rank 推导：rank=3 无前缀，rank=4 为 `(3,)`，rank=5 为 `(3,3)`。v8 原始梯度、滤波速度/梯度按 `[::2,::2,::2]` 永久保存；其他字段完整保存。采样只发生在持久化写入，求导、非线性乘积、散度、Pi、统计与 QA 的输入仍为完整网格。`field_sampling` 明确记录原网格坐标映射，reader 按逐字段 shape 和采样元数据校验。
+
 ## Regime：两种判据必须分清
 
 磁盘 `regime` 由 `regime_codes_from_thresholds` 生成。定义 `eps_full=max(eps_abs,eps_rel*RMS(W_full))`，resolved 同理；只有严格 `>eps` 或 `<-eps` 才进入正/负类，其余为 0 uncertain。即使 eps=0，精确零仍 uncertain。
@@ -62,6 +66,8 @@ Cq 五场 `pi,s_bar,work_full,work_resolved,delta_w` 分别统计 `sum_q/N`（�
 
 正式提交生成字段 hash、manifest、QA 链，staging 原子移动后创建 COMPLETE。reader 要求主结果和共享梯度 COMPLETE，schema、shape 及输入 manifest hash 一致。重算报告的接口会维护报告/hash 元数据，不能手动编辑 JSON。result schema 与 report version 分开维护。
 
+初次处理和报告重算共用 `store.report_summary` 的 passed/scope/version/hash 摘要，以及 `store.report_metadata` 的带报告名前缀属性；weak-asymmetry 的全局比值和 closure 摘要由其模块的 `weak_asymmetry_summary` 定义。各 QA 的科学计算、附加字段和版本仍由各自模块管理。重算入口先持有原有 QA metadata 锁，写报告及 `qa.json`，再调用 `validation.update_report_metadata` 依次更新 manifest、Zarr attrs、COMPLETE。每个 JSON 的写入仍通过 `.partial` 和 `os.replace` 完成；整个更新不是跨文件事务。中途失败会使哈希链不一致，reader 拒绝复用，重试成功后才恢复一致；`passed=False` 的科学报告也可以具有完整有效的哈希链。
+
 复用不仅看文件存在：参数、schema、输入来源、完成状态及报告有效性均参与检查。失败退出后保留可验证输入；临时 batch 缓存会清理或重建。锁按下载/生产/输入/strain 等职责隔离，同一结果不要并行写。
 
 ## 压力与 QPower
@@ -71,6 +77,8 @@ Cq 五场 `pi,s_bar,work_full,work_resolved,delta_w` 分别统计 `sum_q/N`（�
 服务端 `--field pressure_gradient` 使用 getData fd4noint，是独立采集路径，不是 `pressure_local` 的别名。QPower preflight 检查字段/shape/来源，完整数组加载后计算 q/u² 与事件集合。绘图 stride 只用于可视化；统计全格点。初始 QPower 是全数组实现，后续 threshold/tails/ranges/angles 使用分块读，不能因此推断初始流程在 24 GB RAM 可行。
 
 ## 子项目与扩展位置
+
+GUI 的公开切片函数保留，内部 `_extract_spatial_slice` 通过 component 前缀和固定 z/y/x 映射读取单平面；`_continuous_pair` 只复用双列绘图，色限和 scale 仍由页面决定。flux_plateau 的线性等效尺度与 log 波数图共用 `_flux_figure`，但排序字段、坐标类型及 hover 数据仍按各入口选择。
 
 block statistics 使用未滤波速度的 SijSij；额外 strain 计算/缓存归 block 目录，主库提供兼容入口。pi_slices 只读取指定平面；scatter 分块全计数并检查 PDF 积分；pi_pdf 明确采用 LES 符号；flux_plateau 只读小报告，不扫数组。具体分箱、零值、分位和输出契约见各自 README。
 

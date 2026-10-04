@@ -148,19 +148,31 @@ def build_flux_points(
     return points
 
 
-def make_figure(
-    points: list[FluxPoint], epsilon_reference: float
+def _flux_figure(
+    points: list[FluxPoint], epsilon_reference: float, *, log_k: bool
 ) -> go.Figure:
     figure = go.Figure()
+    coordinate = "cutoff_wavenumber" if log_k else "equivalent_r_over_eta"
+    hovertemplate = (
+        "k_1/2=%{x:.6g}<br>&lt;Π_forward&gt;/ε=%{y:.6f}<br>"
+        "sigma=%{customdata[0]}<br>r_eq/eta=%{customdata[1]:.6g}<br>"
+        "k_1/2/Δk=%{customdata[2]:.6g}<br>&lt;Π_forward&gt;=%{customdata[3]}<br>"
+        "%{customdata[4]}<extra>%{fullData.name}</extra>"
+        if log_k else
+        "r_eq/eta=%{x:.6g}<br>&lt;Π_forward&gt;/ε=%{y:.6f}<br>"
+        "sigma=%{customdata[0]}<br>k_1/2/Δk=%{customdata[2]:.6g}<br>"
+        "k_1/2=%{customdata[3]:.6g}<br>&lt;Π_forward&gt;=%{customdata[4]}<br>"
+        "%{customdata[5]}<extra>%{fullData.name}</extra>"
+    )
     group_keys = sorted({point.group_key for point in points})
     for group_key in group_keys:
         group = sorted(
             (point for point in points if point.group_key == group_key),
-            key=lambda point: point.equivalent_r_over_eta,
+            key=lambda point: getattr(point, coordinate),
         )
         figure.add_trace(
             go.Scatter(
-                x=[point.equivalent_r_over_eta for point in group],
+                x=[getattr(point, coordinate) for point in group],
                 y=[point.pi_over_epsilon for point in group],
                 mode="lines+markers",
                 name=group[0].group_label,
@@ -179,21 +191,13 @@ def make_figure(
                         "n/a" if math.isnan(point.sigma_grid) else f"{point.sigma_grid:g}",
                         point.equivalent_r_over_eta,
                         point.cutoff_modes,
-                        point.cutoff_wavenumber,
+                        *([] if log_k else [point.cutoff_wavenumber]),
                         "n/a" if math.isnan(point.forward_mean_pi) else f"{point.forward_mean_pi:.8g}",
                         point.note,
                     ]
                     for point in group
                 ],
-                hovertemplate=(
-                    "r_eq/eta=%{x:.6g}<br>"
-                    "&lt;Π_forward&gt;/ε=%{y:.6f}<br>"
-                    "sigma=%{customdata[0]}<br>"
-                    "k_1/2/Δk=%{customdata[2]:.6g}<br>"
-                    "k_1/2=%{customdata[3]:.6g}<br>"
-                    "&lt;Π_forward&gt;=%{customdata[4]}<br>"
-                    "%{customdata[5]}<extra>%{fullData.name}</extra>"
-                ),
+                hovertemplate=hovertemplate,
             )
         )
     figure.add_hrect(
@@ -213,8 +217,10 @@ def make_figure(
         annotation_position="top right",
     )
     figure.update_layout(
-        title=f"Mean forward energy-flux vs Gaussian-equivalent scale (ε={epsilon_reference:.4g})",
-        xaxis={
+        title=(f"Mean forward energy-flux vs half-gain wavenumber (ε={epsilon_reference:.4g})"
+               if log_k else
+               f"Mean forward energy-flux vs Gaussian-equivalent scale (ε={epsilon_reference:.4g})"),
+        xaxis={"title": "half-gain wavenumber k_1/2 (log scale)", "type": "log"} if log_k else {
             "title": "Gaussian-equivalent scale r_eq / η (linear)",
             "type": "linear",
         },
@@ -226,79 +232,17 @@ def make_figure(
     return figure
 
 
+def make_figure(
+    points: list[FluxPoint], epsilon_reference: float
+) -> go.Figure:
+    return _flux_figure(points, epsilon_reference, log_k=False)
+
+
 def make_log_k_figure(
     points: list[FluxPoint], epsilon_reference: float
 ) -> go.Figure:
     """Plot the same flux data against the common half-gain wavenumber."""
-    figure = go.Figure()
-    group_keys = sorted({point.group_key for point in points})
-    for group_key in group_keys:
-        group = sorted(
-            (point for point in points if point.group_key == group_key),
-            key=lambda point: point.cutoff_wavenumber,
-        )
-        figure.add_trace(
-            go.Scatter(
-                x=[point.cutoff_wavenumber for point in group],
-                y=[point.pi_over_epsilon for point in group],
-                mode="lines+markers",
-                name=group[0].group_label,
-                line={"dash": "dot" if group_key[0] == "paper" else "solid"},
-                marker={
-                    "size": 10,
-                    "symbol": [
-                        "square-open"
-                        if point.note == "paper data"
-                        else "circle"
-                        for point in group
-                    ],
-                },
-                customdata=[
-                    [
-                        "n/a" if math.isnan(point.sigma_grid) else f"{point.sigma_grid:g}",
-                        point.equivalent_r_over_eta,
-                        point.cutoff_modes,
-                        "n/a" if math.isnan(point.forward_mean_pi) else f"{point.forward_mean_pi:.8g}",
-                        point.note,
-                    ]
-                    for point in group
-                ],
-                hovertemplate=(
-                    "k_1/2=%{x:.6g}<br>"
-                    "&lt;Π_forward&gt;/ε=%{y:.6f}<br>"
-                    "sigma=%{customdata[0]}<br>"
-                    "r_eq/eta=%{customdata[1]:.6g}<br>"
-                    "k_1/2/Δk=%{customdata[2]:.6g}<br>"
-                    "&lt;Π_forward&gt;=%{customdata[3]}<br>"
-                    "%{customdata[4]}<extra>%{fullData.name}</extra>"
-                ),
-            )
-        )
-    figure.add_hrect(
-        y0=0.95,
-        y1=1.05,
-        fillcolor="gray",
-        opacity=0.10,
-        line_width=0,
-        annotation_text="±5%",
-        annotation_position="top left",
-    )
-    figure.add_hline(
-        y=1.0,
-        line_dash="dash",
-        line_color="black",
-        annotation_text="inertial plateau = 1",
-        annotation_position="top right",
-    )
-    figure.update_layout(
-        title=f"Mean forward energy-flux vs half-gain wavenumber (ε={epsilon_reference:.4g})",
-        xaxis={"title": "half-gain wavenumber k_1/2 (log scale)", "type": "log"},
-        yaxis={"title": "<Π_forward> / ε", "type": "linear"},
-        legend={"title": "Filter"},
-        template="plotly_white",
-        hovermode="closest",
-    )
-    return figure
+    return _flux_figure(points, epsilon_reference, log_k=True)
 
 
 def write_outputs(

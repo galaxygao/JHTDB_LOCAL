@@ -26,7 +26,8 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from jhtdb_pipeline.config import PipelineConfig, result_zarr_name
 from jhtdb_pipeline.cq import REGIME_KEYS
-from jhtdb_pipeline.store import spatial_slices
+from jhtdb_pipeline.store import chunk_count, spatial_slices
+from jhtdb_pipeline.physics import sign_regime_masks as _regime_masks
 from jhtdb_pipeline.validation import atomic_json
 ```
 
@@ -38,27 +39,9 @@ DEFAULT_REGIME_PI_OUTPUT_ROOT = Path('regime_pi/output')
 __all__ = ['DEFAULT_REGIME_PI_OUTPUT_ROOT', 'REGIME_PI_REPORT_VERSION', 'compute_regime_pi_statistics', 'regime_pi_output_dir', 'regime_pi_report_is_current', 'run_regime_pi_statistics']
 ```
 
-### `_chunk_count`
-
-[实现：第 23 行](statistics.py#L23)
-
-```python
-def _chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int
-```
-
-调用：`int`, `np.prod`, `zip`
-
-### `_regime_masks`
-
-[实现：第 32 行](statistics.py#L32)
-
-```python
-def _regime_masks(full: np.ndarray, resolved: np.ndarray) -> tuple[np.ndarray, ...]
-```
-
 ### `compute_regime_pi_statistics`
 
-[实现：第 48 行](statistics.py#L48)
+[实现：第 24 行](statistics.py#L24)
 
 ```python
 def compute_regime_pi_statistics(root: Any, cfg: PipelineConfig) -> dict[str, Any]
@@ -66,7 +49,7 @@ def compute_regime_pi_statistics(root: Any, cfg: PipelineConfig) -> dict[str, An
 
 Split stored Pi into backscatter/forward parts inside every Cq regime.
 
-调用：`BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_chunk_count`, `_regime_masks`, `abs`, `any`, `bool`, `enumerate`, `float`, `int`, `list`, `max`, `np.all`, `np.asarray`, `np.count_nonzero`, `np.dtype`, `np.isfinite`, `np.prod`, `np.zeros`, `progress.add_task`, `progress.advance`, `regime_counts.sum`, `selected.sum`, `selected[negative].sum`, `selected[positive].sum`, `spatial_slices`, `tuple`, `values.astype`
+调用：`BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_regime_masks`, `abs`, `any`, `bool`, `chunk_count`, `enumerate`, `float`, `int`, `list`, `max`, `np.all`, `np.asarray`, `np.count_nonzero`, `np.dtype`, `np.isfinite`, `np.prod`, `np.zeros`, `progress.add_task`, `progress.advance`, `regime_counts.sum`, `selected.sum`, `selected[negative].sum`, `selected[positive].sum`, `spatial_slices`, `tuple`, `values.astype`
 
 显式异常：
 
@@ -78,7 +61,7 @@ ValueError('Pi or work field contains NaN or Inf')
 
 ### `regime_pi_output_dir`
 
-[实现：第 196 行](statistics.py#L196)
+[实现：第 172 行](statistics.py#L172)
 
 ```python
 def regime_pi_output_dir(result_dir: Path | str, output_root: Path | str=DEFAULT_REGIME_PI_OUTPUT_ROOT) -> Path
@@ -88,7 +71,7 @@ def regime_pi_output_dir(result_dir: Path | str, output_root: Path | str=DEFAULT
 
 ### `regime_pi_report_is_current`
 
-[实现：第 203 行](statistics.py#L203)
+[实现：第 179 行](statistics.py#L179)
 
 ```python
 def regime_pi_report_is_current(path: Path, result_manifest_hash: str | None) -> bool
@@ -98,7 +81,7 @@ def regime_pi_report_is_current(path: Path, result_manifest_hash: str | None) ->
 
 ### `run_regime_pi_statistics`
 
-[实现：第 217 行](statistics.py#L217)
+[实现：第 193 行](statistics.py#L193)
 
 ```python
 def run_regime_pi_statistics(cfg: PipelineConfig, time_index: int, sigma_grid: float, *, output_root: Path | str=DEFAULT_REGIME_PI_OUTPUT_ROOT, overwrite: bool=False) -> Path

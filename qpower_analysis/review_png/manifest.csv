@@ -1,0 +1,8 @@
+﻿file,title,description,source,sha256
+01_qpower_slices.png,压力功率三正交切片,q=-u·∇P 的 XY、XZ、YZ 切片。,output/20261001T044629Z/frame_000001/qpower_slices.png,b4cc48d9a2f1431128b59642cc1630f404f89c7055ee2100503cf4741f32ccae
+02_conditional_q_given_u2.png,初始条件均值：q 随速度能量变化,早期图，横轴为 u²/⟨u²⟩，上界按 99.9% 分位截断；与后续全尾部图范围不同。,output/20261001T044629Z/frame_000001/conditional_q_given_u2.png,f85b65d3cfed01909049b0d258949d7472040d71906bf6f3d1f23b47c76ff026
+03_frame_000001_q_given_u2.png,全尾部：给定速度能量的 q,横轴 u²/⟨u²⟩；上下 2.5% 尾部与中间 95% 分开显示，阴影为箱内中间 50% 点值。,output/20261001T044629Z/conditional_tails/frame_000001_q_given_u2.png,76ddc0b89e63571659ea3c9e0a03772cb6f2d8c0517679a2e111b9fb4cc9652e
+04_frame_000001_u2_given_q.png,全尾部：给定 q 的速度能量,横轴 q/q_rms，包含正 q、负 q 和零附近；阴影为箱内中间 50% 点值。,output/20261001T044629Z/conditional_tails/frame_000001_u2_given_q.png,e0ac4b73a54dba0901e221b591261580473af91022c8e66425e11990a9fb61bc
+05_angle_relationships.png,强正功率、高速度交集的夹角关系,仅 q/q_rms>1 且 u²/⟨u²⟩>1；夹角为 u 与 −∇P 的夹角。平均 45.22°，图中没有 q≈0 的分箱。,output/20261001T044629Z/angle_statistics/angle_relationships.png,0212bff0585e18ab7b939dadefb1b2a5eb6566162c0db9a4e04783a57525d67f
+07_factor_cdfs.png,q≈0 点的速度、梯度与方向投影分布,比较全域、q≈0 最高分箱（−0.03921 ≤ q/q_rms < 0.02203）与 |q|<0.01q_rms；纵轴为各集合内部累计比例。,output/20261001T044629Z/near_zero_diagnostic/factor_cdfs.png,4eedba29760866477e5e6b64fbd344ba6acff3089ce012016d04ca36767f1a72
+08_sign_split_angle_check.png,零附近正、负 q 的角度对照,分别统计 0<q/q_rms<0.01 和 −0.01<q/q_rms<0，不限制速度；绿色为原交集的最左可见分箱。夹角为 u 与 −∇P 的夹角。,output/20261001T044629Z/near_zero_diagnostic/sign_split_angle_check.png,397c124bf6db2591d245c8cbd157078fd2d65265cebd779201d4825ce3ee11be

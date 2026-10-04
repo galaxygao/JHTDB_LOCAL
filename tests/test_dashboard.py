@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pytest
+import yaml
+from streamlit.testing.v1 import AppTest
 
 from jhtdb_pipeline.dashboard import (
     CQ_REGIME_ORDER,
@@ -28,10 +34,34 @@ from jhtdb_pipeline.dashboard import (
     sbar_metric_rows,
     weak_asymmetry_rows,
     spatial_axis_length,
+    comparison_slices,
 )
+from jhtdb_pipeline.processing import process_batch
+from test_processing import fixture
 
 
 class DashboardTests(unittest.TestCase):
+    def test_comparisons_align_raw_and_sampled_fields_in_all_three_planes(self):
+        vector = np.arange(3 * 16**3).reshape(3, 16, 16, 16)
+        fields = {"velocity": vector, "velocity_bar": vector[:, ::2, ::2, ::2]}
+
+        class Result(dict):
+            attrs = {"field_sampling": {"velocity_bar": {"stride_xyz": [2, 2, 2]}}}
+
+        result = Result(fields)
+        for axis in ("z", "y", "x"):
+            raw, filtered = comparison_slices(result, "velocity_bar", axis, 14, 1)
+            np.testing.assert_array_equal(raw, filtered)
+            self.assertEqual(raw.shape, (8, 8))
+        with self.assertRaisesRegex(ValueError, "sampling lattice"):
+            comparison_slices(result, "velocity_bar", "z", 15, 1)
+
+    def test_sampled_figures_use_original_grid_coordinates(self):
+        figure = _continuous_figure(np.zeros((512, 512)), "sampled velocity", storage_stride=2)
+        np.testing.assert_array_equal(figure.data[0].x, np.arange(0, 1024, 2))
+        np.testing.assert_array_equal(figure.data[0].y, np.arange(0, 1024, 2))
+        self.assertEqual(list(figure.layout.xaxis.range), [0, 1023])
+
     def test_robust_symmetric_color_limit_ignores_sparse_extreme(self) -> None:
         values = np.concatenate((np.linspace(-2.0, 2.0, 10_000), [1_000.0]))
         robust_limit = _symmetric_color_limit(values, 99.0)
@@ -261,6 +291,55 @@ class DashboardTests(unittest.TestCase):
                 ("fraction_of_cutoff", 0.1171875),
             )
 
+
+@pytest.mark.parametrize("entry", ["dashboard.py", "src/jhtdb_pipeline/dashboard.py"])
+def test_dashboard_import_with_streamlit_script_directory_first(entry):
+    project = Path(__file__).resolve().parents[1]
+    script = project / entry
+    probe = (
+        "import runpy, sys; from pathlib import Path; "
+        "sys.path.insert(0, str(Path(sys.argv[1]).parent)); "
+        "runpy.run_path(sys.argv[1], run_name='_dashboard_import_probe'); "
+        "from regime_pi.statistics import compute_regime_pi_statistics; "
+        "assert callable(compute_regime_pi_statistics)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe, str(script)],
+        cwd=project, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_full_field_gui_all_pages_and_boundary_slices(tmp_path, monkeypatch):
+    cfg, _ = fixture(tmp_path)
+    cfg = replace(cfg, fft_cache_mode='memmap', sigma_grids=(1.0, 2.0))
+    paths = process_batch(cfg, 1)
+    sbar_passed = json.loads((paths[0] / "s_bar_qa.json").read_text())["passed"]
+    config = yaml.safe_load(Path('configs/pipeline.macos.yaml').read_text())
+    config['platform'] = {key: str(getattr(cfg, key)) for key in ('state_root', 'run_root', 'result_root')}
+    # GUI metadata discovery must read full test arrays, without allocating a production field.
+    config_path = tmp_path / 'gui.yaml'
+    config_path.write_text(yaml.safe_dump(config))
+    monkeypatch.setenv('JHTDB_PIPELINE_CONFIG', str(config_path))
+    app = AppTest.from_file(str(Path('src/jhtdb_pipeline/dashboard.py').resolve()), default_timeout=20)
+    app.run()
+    assert not app.exception
+    app.sidebar.button[0].click().run()
+    assert not app.exception
+    for page in app.sidebar.radio[0].options:
+        app.sidebar.radio[0].set_value(page).run()
+        assert not app.exception, str(app.exception)
+        if page == "全域 S̄ QA" and not sbar_passed:
+            assert [item.value for item in app.error] == ["全域 S̄ QA：失败；正式数据仍保留用于诊断"]
+        else:
+            assert not app.error, (page, [item.value for item in app.error])
+        if app.sidebar.slider:
+            boundary = 14 if page in ("速度对比", "梯度对比") else 15
+            assert app.sidebar.slider[0].max == boundary
+            app.sidebar.slider[0].set_value(0).run()
+            assert not app.exception, str(app.exception)
+            app.sidebar.slider[0].set_value(boundary).run()
+            assert not app.exception, str(app.exception)
 
 if __name__ == "__main__":
     unittest.main()

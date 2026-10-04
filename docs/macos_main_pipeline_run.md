@@ -1,4 +1,4 @@
-# macOS 主流水线：全点存储与 24 GB 配置
+# macOS 主流水线：步长 2 向量存储与 24 GB 配置
 
 2026-10-02，Apple M5 / 10 核（4 性能 + 6 能效）/ 24 GB RAM / arm64。
 本次范围为主项目；不执行 block statistics、QPower 等子项目。
@@ -6,17 +6,17 @@
 
 ## 当前代码与数据布局
 
-结果格式为 v7，所有数组的空间维度都是完整 `1024³`，不再配置或执行空间裁剪。
+当前结果格式为 v8。计算网格完整 `1024³`；共享原始梯度、滤波速度和滤波梯度仅保存原网格 `[::2,::2,::2]`，得到覆盖全域的 `512³` 点。原始速度输入和所有标量场完整保存。采样映射写入 `field_sampling`，不引入空间裁剪。
 
 | 数据 | 保存位置 | 未压缩大小 |
 |---|---|---:|
 | 原始速度，3 分量 | `.local/state/inputs/t000001/velocity_cache.zarr` | 12 GiB |
-| 原始速度梯度，9 分量 | `.local/results/t000001_shared_full/full_raw.zarr` | 36 GiB |
-| 每尺度滤波速度，3 分量 | 各结果目录 `full_result_sigma_*.zarr/velocity_bar` | 12 GiB |
-| 每尺度滤波梯度，9 分量 | 同上 `gradient_bar` | 36 GiB |
+| 原始速度梯度，9 分量、步长 2 | `.local/results/t000001_shared_stride2/sampled_raw.zarr` | 4.5 GiB |
+| 每尺度滤波速度，3 分量、步长 2 | 各结果目录 `full_result_sigma_*.zarr/velocity_bar` | 1.5 GiB |
+| 每尺度滤波梯度，9 分量、步长 2 | 同上 `gradient_bar` | 4.5 GiB |
 | 每尺度 Pi、S-bar、两个 Work、regime | 同上 | 17 GiB |
 
-每尺度共 65 GiB，五尺度加共享输入共 373 GiB。原始速度和梯度每帧只保存一份，
+每尺度共 23 GiB，五尺度加共享输入共 131.5 GiB。原始速度和梯度每帧只保存一份，
 每尺度通过 `shared_refs.json` 引用。实际 Zarr 文件使用压缩，容量预检按未压缩大小计算。
 
 已删除 `migration.py`、旧格式转换函数、`migrate-existing`、`upgrade-result`、
@@ -46,8 +46,8 @@ memmap 模式把共享梯度和频谱放在磁盘，仍只构建一次、供所�
 共享源频谱。映射写回后，在系统支持时释放文件映射页供系统回收。
 
 共享临时缓存约 84.09 GiB；全部临时容量的保守估算约 136.11 GiB。五尺度数据、输入、
-临时空间和 24 GiB 余量合计约 533.11 GiB。输入已存在时，同盘 batch 前检要求剩余空间
-约 521.11 GiB；实际前检随待算尺度数调整。临时共享缓存正常退出或异常处理时清理。
+临时空间和 24 GiB 余量合计约 291.61 GiB。输入已存在时，同盘 batch 前检要求剩余空间
+约 279.61 GiB；实际前检随待算尺度数调整。临时共享缓存正常退出或异常处理时清理。
 完成的全场梯度和结果永久保留；强制终止进程可能遗留临时文件。
 
 ### 参数依据与限制
@@ -97,6 +97,9 @@ STREAMLIT_SERVER_HEADLESS=true .venv-mac/bin/python -m jhtdb_pipeline gui \
   --config configs/pipeline.macos.yaml --port 8501
 ```
 
+脚本第一个参数指定时间帧，默认 `1`。计算第 500 帧时使用
+`bash scripts/run_main_macos.sh 500`，并将检查、输入准备和统计命令的 `--time-index` 同步设为 `500`。
+
 访问 <http://127.0.0.1:8501>。逐结果检查 `qa.json`、`divergence.json` 和 `s_bar_qa.json`；
 `COMPLETE` 表示存储提交完成，GUI 仍会明确展示失败的科学 QA。
 
@@ -123,3 +126,46 @@ STREAMLIT_SERVER_HEADLESS=true .venv-mac/bin/python -m jhtdb_pipeline gui \
 跨 sigma 频谱复用、奇数网格和非整除 slab、故障清理、结果维度及 GUI 全页验证。
 验证命令为 `.venv-mac/bin/python -m pytest tests -q`；日志位于
 `.local/macos_main_run/full_fields_tests.log`。
+
+## 第 500 帧空间预检
+
+第 500 帧输入已校验，512/512 个速度 tile 完整。v8 五尺度同盘计算的预检要求
+约 279.61 GiB 可用空间，包括所有待算结果、共享梯度、完整 FFT 缓存、工作区和 24 GiB 余量。
+运行 `plan` 查看配置预算；再执行 `bash scripts/run_main_macos.sh 500`。
+
+此前 v7 全点存储启动因 349.50 GiB 可用、521.11 GiB 所需而退出；这个历史要求不适用于 v8。
+如果结果盘和临时盘不同，分别预检两个磁盘；已有结果的路径迁移见
+[系统迁移](system_migration.md)。
+
+## 压缩与历史 v7 容量实测
+
+`storage.compression_level=3`，使用 Blosc Zstd + BITSHUFFLE 无损压缩，
+压缩线程为 6。完整 `1024³` 的一个 float32 标量场未压缩恰为 4 GiB。
+以下是转换前 v7 的 sigma=10、第 1 帧结果，实际磁盘占用通过 `du -sk` 测量如下；
+这些全点存储数字仅作历史对照，不是当前 v8 的容量预算。
+
+| 每尺度字段 | 未压缩 GiB | 实际磁盘占用 GiB |
+|---|---:|---:|
+| 滤波速度，3 分量 | 12 | 8.975 |
+| 滤波梯度，9 分量 | 36 | 30.099 |
+| Pi、S-bar、W-full、W-resolved，4 标量 | 16 | 13.550 |
+| regime，uint8 | 1 | 0.158 |
+| 合计 | 65 | 52.782 |
+
+原始速度和原始梯度每帧仅保存一次，通过 `shared_refs.json` 引用，
+不包含在每尺度 65 GiB 内。完整 float32 字段保留所有位，压缩结果以实际数据为准。
+
+对上述结果的全部字段/分量，分别抽取起点为 `(0,0,0)`、`(448,448,448)`、
+`(960,960,960)` 的 `64³` 块，共 48.75 MiB，使用相同 chunk 与 bitshuffle
+比较压缩级别，并逐块验证解码字节与原值一致：
+
+| Zstd 级别 | 样本压缩后 MiB | 相比级别 3 节省 |
+|---|---:|---:|
+| 3 | 39.641 | — |
+| 6 | 38.033 | 4.06% |
+| 9 | 37.114 | 6.38% |
+
+这是数据块样本测量，不是全部结果重压缩。提高级别会增加编码耗时，
+也不会自动改写已有数组的 compressor；当前配置仍为 3。
+结果记录位于 `.local/macos_main_run/compression_sample.json`。
+空间预检仍按未压缩容量，不能用这个样本比例代替全域容量检查。

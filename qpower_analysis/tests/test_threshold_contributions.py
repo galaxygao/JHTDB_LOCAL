@@ -1,10 +1,5 @@
-import importlib.util
-from pathlib import Path
 import numpy as np
-
-spec=importlib.util.spec_from_file_location('contributions',Path(__file__).parents[1]/'threshold_contributions.py')
-module=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+from qpower_analysis import threshold_contributions as module
 
 
 def test_histograms_match_direct_masks_including_threshold_boundaries():

@@ -32,7 +32,7 @@ Streamlit GUI 查看正式结果。
 - JHTDB 个人 token；
 - RAM 共享缓存模式推荐至少 16 个物理核心和 192 GiB RAM；磁盘共享缓存模式可用于 24 GB Mac；
 - `memory` 模式多 sigma smooth-sharp batch 峰值约 92 GiB RAM；24 GB Mac 使用下述 `memmap` 配置；
-- 完整输入缓存约 12 GiB，单个 sigma 正式结果约 65 GiB，另有每帧共享原始梯度约 36 GiB；
+- 完整输入缓存约 12 GiB，单个 sigma 正式结果约 23 GiB，另有每帧共享原始梯度约 4.5 GiB；
 - 默认要求正式盘和临时盘各保留至少 24 GiB 安全余量。
 
 不要同时启动多个 sigma 计算进程。`process-batch` 会在一个进程中共享原始梯度和
@@ -87,7 +87,7 @@ Mac 参数为 `fft_cache_mode=memmap`、`fft_workers=10`、`compression_threads=
 线程数来自本机短测；完整域总进程峰值内存尚未实测，详细限制见
 [`macOS 说明`](../docs/macos_main_pipeline_run.md)。不要在这台 Mac 使用 Windows 的 RAM 配置。
 
-五尺度永久数据未压缩约 373 GiB（含输入），共享磁盘缓存约 84.09 GiB；
+五尺度永久数据未压缩约 131.5 GiB（含输入），共享磁盘缓存约 84.09 GiB；
 还需工作区与安全余量。预检按未压缩大小检查所有待算尺度及同盘共享空间。
 
 ```bash
@@ -95,8 +95,8 @@ STREAMLIT_SERVER_HEADLESS=true .venv-mac/bin/python -m jhtdb_pipeline gui \
   --config configs/pipeline.macos.yaml --port 8501
 ```
 
-新结果格式 v7：原始速度、原始梯度、每尺度滤波速度/梯度及所有物理场均为完整 `1024³`。
-原始速度和原始梯度每帧各存一份，通过 `shared_refs.json` 共用。v6 不能直接补齐缺失的全域场；使用 [版本更新工具](data_versions.md) 从已验证速度重建 v7。
+新结果格式 v8：原始速度输入和所有标量场完整保存 `1024³`；共享原始梯度、每尺度滤波速度/梯度每轴步长 2，保存覆盖全域的 `512³` 点。所有物理计算、统计和 QA 均使用完整 `1024³`。
+原始速度和原始梯度每帧各存一份，通过 `shared_refs.json` 共用。读取器支持 v7/v8；新计算写 v8。跨机重建使用 [重建工具](data_versions.md)，从已验证速度重新计算。
 
 ## JHTDB token
 

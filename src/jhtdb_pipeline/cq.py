@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,13 +12,17 @@ from filelock import FileLock
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
+from .physics import sign_regime_masks
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
-from .store import spatial_slices
-from .validation import atomic_json
+from .store import (
+    chunk_count, load_chained_report, report_metadata, report_summary, spatial_slices,
+)
+from .validation import atomic_json, update_report_metadata
 from .weak_asymmetry import (
     AbsPiPercentileAccumulator,
     build_weak_asymmetry_report,
     ensure_weak_asymmetry_result,
+    weak_asymmetry_summary,
     write_weak_asymmetry_artifacts,
 )
 
@@ -35,15 +38,6 @@ REGIME_FIELD_SPECS = (
     ("work_resolved", "mean W_res", "#d62728"),
     ("delta_w", "mean ΔW", "#9467bd"),
 )
-
-
-def _chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int:
-    return int(
-        np.prod(
-            [(size + chunk - 1) // chunk for size, chunk in zip(shape, chunks)],
-            dtype=np.int64,
-        )
-    )
 
 
 def compute_cq(
@@ -97,7 +91,7 @@ def compute_cq(
         console=console,
     ) as progress:
         task = progress.add_task(
-            "full-domain C_q", total=_chunk_count(expected, chunks)
+            "full-domain C_q", total=chunk_count(expected, chunks)
         )
         for key in spatial_slices(expected, chunks):
             values = np.asarray(pi[key], dtype=np.float32)
@@ -137,19 +131,7 @@ def compute_cq(
             if np.any(negative):
                 negative_sum += float(values64[negative].sum(dtype=np.float64))
             point_count += values.size
-            full_negative = full < 0.0
-            resolved_negative = resolved < 0.0
-            q1 = ~full_negative & ~resolved_negative
-            q4 = full_negative & resolved_negative
-            delta_nonnegative = (full - resolved) >= 0.0
-            masks = (
-                q1 & delta_nonnegative,
-                q1 & ~delta_nonnegative,
-                ~full_negative & resolved_negative,
-                full_negative & ~resolved_negative,
-                q4 & delta_nonnegative,
-                q4 & ~delta_nonnegative,
-            )
+            masks = sign_regime_masks(full, resolved)
             for index, mask in enumerate(masks):
                 count = int(np.count_nonzero(mask))
                 counts[index] += count
@@ -387,39 +369,8 @@ def write_cq_artifacts(result_dir: Path, report: dict[str, Any]) -> str:
     return report_hash
 
 
-def _report_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def cq_report_is_current(result_dir: Path, root: Any) -> bool:
-    path = result_dir / "cq.json"
-    manifest_path = result_dir / "manifest.json"
-    complete_path = result_dir / "COMPLETE"
-    if (
-        not path.is_file()
-        or not (result_dir / "cq.html").is_file()
-        or not manifest_path.is_file()
-        or not complete_path.is_file()
-    ):
-        return False
-    try:
-        report = json.loads(path.read_text(encoding="utf-8"))
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        complete = json.loads(complete_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    report_hash = _report_hash(path)
-    manifest_hash = _report_hash(manifest_path)
-    return (
-        report.get("report_version") == CQ_REPORT_VERSION
-        and report.get("scope") == "full_domain"
-        and manifest.get("cq_report_version") == CQ_REPORT_VERSION
-        and manifest.get("cq_report_hash") == report_hash
-        and root.attrs.get("cq_report_version") == CQ_REPORT_VERSION
-        and root.attrs.get("cq_report_hash") == report_hash
-        and root.attrs.get("manifest_hash") == manifest_hash
-        and complete.get("manifest_hash") == manifest_hash
-    )
+    return load_chained_report(result_dir, root, "cq", CQ_REPORT_VERSION) is not None
 
 
 def run_cq(
@@ -448,50 +399,19 @@ def run_cq(
 
         qa_path = result_dir / "qa.json"
         qa = json.loads(qa_path.read_text(encoding="utf-8"))
-        qa["cq"] = {
-            "passed": report["passed"],
-            "scope": report["scope"],
-            "report_version": report["report_version"],
-            "report_hash": report_hash,
-            "partition_check": report["partition_check"],
-        }
-        qa["weak_asymmetry"] = {
-            "passed": weak_report["passed"],
-            "scope": weak_report["scope"],
-            "report_version": weak_report["report_version"],
-            "report_hash": weak_report_hash,
-            "asymmetry_index": weak_report["global"]["asymmetry_index"],
-            "ratio_p99": weak_report["global"]["ratio_p99"],
-            "ratio_max": weak_report["global"]["ratio_max"],
-            "closure": weak_report["closure"],
-        }
+        qa["cq"] = report_summary(
+            report, report_hash, partition_check=report["partition_check"]
+        )
+        qa["weak_asymmetry"] = weak_asymmetry_summary(weak_report, weak_report_hash)
         atomic_json(qa_path, qa)
 
-        manifest_path = result_dir / "manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest.update(
+        update_report_metadata(
+            result_dir, root,
             {
-                "cq_passed": report["passed"],
-                "cq_report_version": report["report_version"],
-                "cq_report_hash": report_hash,
-                "weak_asymmetry_passed": weak_report["passed"],
-                "weak_asymmetry_report_version": weak_report["report_version"],
-                "weak_asymmetry_report_hash": weak_report_hash,
-            }
+                **report_metadata("cq", report, report_hash),
+                **report_metadata("weak_asymmetry", weak_report, weak_report_hash),
+            },
         )
-        manifest_hash = atomic_json(manifest_path, manifest)
-        root.attrs.update(
-            {
-                "cq_passed": report["passed"],
-                "cq_report_version": report["report_version"],
-                "cq_report_hash": report_hash,
-                "weak_asymmetry_passed": weak_report["passed"],
-                "weak_asymmetry_report_version": weak_report["report_version"],
-                "weak_asymmetry_report_hash": weak_report_hash,
-                "manifest_hash": manifest_hash,
-            }
-        )
-        atomic_json(result_dir / "COMPLETE", {"manifest_hash": manifest_hash})
         return report
 
 

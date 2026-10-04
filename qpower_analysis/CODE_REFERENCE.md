@@ -55,7 +55,7 @@ def plot_saved(out)
 
 Plot equal-width central bins; report pooled tails separately.
 
-调用：`'\n'.join`, `(out / 'summary.json').read_text`, `(out / f'angle_given_{name}.csv').open`, `Path`, `Path('.local/cache/matplotlib').resolve`, `abs`, `ax.grid`, `bottom.bar`, `bottom.set`, `cosine_axis.get_legend_handles_labels`, `cosine_axis.plot`, `cosine_axis.set_ylabel`, `cosine_axis.tick_params`, `csv.DictReader`, `dict`, `enumerate`, `fig.savefig`, `fig.suptitle`, `fig.supxlabel`, `float`, `json.loads`, `matplotlib.use`, `os.environ.setdefault`, `plt.close`, `plt.subplots`, `r.items`, `str`, `sum`, `tails.append`, `top.fill_between`, `top.get_legend_handles_labels`, `top.legend`, `top.plot`, `top.set`, `top.text`, `top.twinx`, `zip`
+调用：`'\n'.join`, `(out / 'summary.json').read_text`, `(out / f'angle_given_{name}.csv').open`, `Path`, `Path('.local/cache/matplotlib').resolve`, `abs`, `ax.grid`, `bottom.bar`, `bottom.get_xticks`, `bottom.set`, `bottom.set_xticks`, `cosine_axis.get_legend_handles_labels`, `cosine_axis.plot`, `cosine_axis.set_ylabel`, `cosine_axis.tick_params`, `csv.DictReader`, `dict`, `enumerate`, `fig.savefig`, `fig.suptitle`, `fig.supxlabel`, `float`, `json.loads`, `matplotlib.use`, `np.unique`, `os.environ.setdefault`, `plt.close`, `plt.subplots`, `r.items`, `str`, `sum`, `tails.append`, `top.fill_between`, `top.get_legend_handles_labels`, `top.legend`, `top.plot`, `top.set`, `top.text`, `top.twinx`, `zip`
 
 ## qpower_analysis/conditional_ranges.py
 
@@ -70,13 +70,11 @@ import json
 import os
 from pathlib import Path
 import numpy as np
-import zarr
-from conditional_tails import fields, quantile_from_hist, plot
 ```
 
 ### `value_edges`
 
-[实现：第 12 行](conditional_ranges.py#L12)
+[实现：第 14 行](conditional_ranges.py#L14)
 
 ```python
 def value_edges(name, minimum, maximum)
@@ -86,7 +84,7 @@ def value_edges(name, minimum, maximum)
 
 ### `indices`
 
-[实现：第 19 行](conditional_ranges.py#L19)
+[实现：第 21 行](conditional_ranges.py#L21)
 
 ```python
 def indices(values, edges)
@@ -102,7 +100,7 @@ ValueError('Values outside histogram')
 
 ### `quantile_ranges`
 
-[实现：第 27 行](conditional_ranges.py#L27)
+[实现：第 29 行](conditional_ranges.py#L29)
 
 ```python
 def quantile_ranges(hist, edges, exact, coverage=0.95)
@@ -118,21 +116,19 @@ ValueError('Incomplete sparse-bin data')
 
 ### `run`
 
-[实现：第 40 行](conditional_ranges.py#L40)
+[实现：第 42 行](conditional_ranges.py#L42)
 
 ```python
 def run(folder, coverage=0.5, from_histograms=False)
 ```
 
-调用：`(folder / 'config_used.json').read_text`, `(folder / 'run_summary.csv').open`, `(out / f'frame_{number:06d}_metadata.json').read_text`, `(out / f'frame_{number:06d}_metadata.json').write_text`, `Path`, `Path('.local/cache/matplotlib').resolve`, `ValueError`, `arrays.append`, `csv.DictReader`, `csv.DictWriter`, `dict`, `enumerate`, `fields`, `float`, `hist.sum`, `indices`, `int`, `json.dumps`, `json.loads`, `len`, `list`, `np.array`, `np.array_equal`, `np.bincount`, `np.bincount(ix * ny + iy, minlength=plan['histogram'].size).reshape`, `np.load`, `np.savez_compressed`, `np.zeros`, `os.environ.setdefault`, `plan['exact'].items`, `plans.items`, `plans.values`, `plot`, `prefix.with_suffix`, `prefix.with_suffix('.csv').open`, `print`, `quantile_ranges`, `root.attrs.get`, `row.update`, `rows[0].keys`, `saved['counts'].copy`, `saved['y_edges'].copy`, `str`, `value_edges`, `values.copy`, `writer.writeheader`, `writer.writerows`, `y.ravel`, `zarr.open_group`, `zip`
+调用：`(folder / 'config_used.json').read_text`, `(folder / 'run_summary.csv').open`, `(out / f'frame_{number:06d}_metadata.json').read_text`, `(out / f'frame_{number:06d}_metadata.json').write_text`, `Path`, `Path('.local/cache/matplotlib').resolve`, `ValueError`, `arrays.append`, `csv.DictReader`, `csv.DictWriter`, `dict`, `enumerate`, `fields`, `float`, `hist.sum`, `indices`, `int`, `json.dumps`, `json.loads`, `len`, `list`, `np.array`, `np.array_equal`, `np.bincount`, `np.bincount(ix * ny + iy, minlength=plan['histogram'].size).reshape`, `np.load`, `np.savez_compressed`, `np.zeros`, `os.environ.setdefault`, `plan['exact'].items`, `plans.items`, `plans.values`, `plot`, `prefix.with_suffix`, `prefix.with_suffix('.csv').open`, `print`, `quantile_ranges`, `row.update`, `rows[0].keys`, `saved['counts'].copy`, `saved['y_edges'].copy`, `str`, `validated_fields`, `value_edges`, `values.copy`, `writer.writeheader`, `writer.writerows`, `y.ravel`, `zip`
 
 显式异常：
 
 ```python
 ValueError('Bin memberships differ from previous plot')
 ValueError('Cached bin edges differ')
-ValueError('Input shapes differ')
-ValueError('Unvalidated or mismatched input')
 ValueError('coverage must lie between 0 and 1')
 ```
 
@@ -190,9 +186,28 @@ def bin_statistics(x, y, edges)
 ValueError('A data point lies outside the bins')
 ```
 
-### `fields`
+### `validated_fields`
 
 [实现：第 38 行](conditional_tails.py#L38)
+
+```python
+def validated_fields(frame, velocity_key, *, metadata_error='Unvalidated or mismatched input')
+```
+
+Open a matching validated velocity/gradient frame without loading full arrays.
+
+调用：`ValueError`, `int`, `root.attrs.get`, `zarr.open_group`
+
+显式异常：
+
+```python
+ValueError('Input shapes differ')
+ValueError(metadata_error)
+```
+
+### `fields`
+
+[实现：第 54 行](conditional_tails.py#L54)
 
 ```python
 def fields(velocity, gradient, qr, um)
@@ -208,7 +223,7 @@ ValueError('Nonfinite inputs')
 
 ### `plot`
 
-[实现：第 51 行](conditional_tails.py#L51)
+[实现：第 67 行](conditional_tails.py#L67)
 
 ```python
 def plot(rows, direction, destination, min_count, shape, frame_time)
@@ -218,23 +233,110 @@ def plot(rows, direction, destination, min_count, shape, frame_time)
 
 ### `run`
 
-[实现：第 102 行](conditional_tails.py#L102)
+[实现：第 118 行](conditional_tails.py#L118)
 
 ```python
 def run(folder)
 ```
 
-调用：`(folder / 'config_used.json').read_text`, `(folder / 'run_summary.csv').open`, `(out / f'frame_{number:06d}_metadata.json').write_text`, `Path`, `Path('.local/cache/matplotlib').resolve`, `ValueError`, `abs`, `bin_statistics`, `bool`, `counts[name].sum`, `csv.DictReader`, `csv.DictWriter`, `dict`, `enumerate`, `fields`, `float`, `frame.get`, `int`, `json.dumps`, `json.loads`, `max`, `min`, `np.concatenate`, `np.histogram`, `np.linspace`, `np.prod`, `np.sign`, `np.sqrt`, `np.zeros`, `os.environ.setdefault`, `out.mkdir`, `plan['count'].sum`, `plot`, `prefix.with_suffix`, `prefix.with_suffix('.csv').open`, `print`, `quantile_from_hist`, `root.attrs.get`, `rows.append`, `rows[0].keys`, `str`, `sum`, `tail_edges`, `writer.writeheader`, `writer.writerows`, `x.max`, `x.min`, `zarr.open_group`, `zip`
+调用：`(folder / 'config_used.json').read_text`, `(folder / 'run_summary.csv').open`, `(out / f'frame_{number:06d}_metadata.json').write_text`, `Path`, `Path('.local/cache/matplotlib').resolve`, `ValueError`, `abs`, `bin_statistics`, `bool`, `counts[name].sum`, `csv.DictReader`, `csv.DictWriter`, `dict`, `enumerate`, `fields`, `float`, `frame.get`, `int`, `json.dumps`, `json.loads`, `max`, `min`, `np.concatenate`, `np.histogram`, `np.linspace`, `np.prod`, `np.sign`, `np.sqrt`, `np.zeros`, `os.environ.setdefault`, `out.mkdir`, `plan['count'].sum`, `plot`, `prefix.with_suffix`, `prefix.with_suffix('.csv').open`, `print`, `quantile_from_hist`, `rows.append`, `rows[0].keys`, `str`, `sum`, `tail_edges`, `validated_fields`, `writer.writeheader`, `writer.writerows`, `x.max`, `x.min`, `zip`
 
 显式异常：
 
 ```python
 ValueError('Conditional bins omitted data')
 ValueError('Degenerate quantile ranges')
-ValueError('Input shapes differ')
 ValueError('Quantile histogram omitted data')
-ValueError('Unvalidated or mismatched input')
 ```
+
+## qpower_analysis/lowest_q_bin_angles.py
+
+[完整源码](lowest_q_bin_angles.py)
+
+依赖：
+
+```python
+from __future__ import annotations
+import argparse
+import csv
+import json
+import os
+from pathlib import Path
+import numpy as np
+from jhtdb_pipeline.store import spatial_slices
+from qpower_analysis.angle_statistics import angle_degrees
+from qpower_analysis.conditional_tails import validated_fields
+```
+
+### `run`
+
+[实现：第 17 行](lowest_q_bin_angles.py#L17)
+
+```python
+def run(folder: Path) -> None
+```
+
+调用：`(folder / 'angle_statistics/angle_given_q_normalized.csv').open`, `(folder / 'angle_statistics/summary.json').read_text`, `(folder / 'config_used.json').read_text`, `(out / 'histogram.csv').open`, `(out / 'summary.json').write_text`, `(q.astype(np.float64) / qr).astype`, `(q.astype(np.float64) / qr).astype(np.float32).astype`, `Path`, `Path('.local/cache/matplotlib').resolve`, `ValueError`, `abs`, `angle_degrees`, `ax.axvline`, `ax.axvspan`, `ax.bar`, `ax.grid`, `ax.legend`, `ax.set`, `ax.text`, `counts.sum`, `csv.DictReader`, `csv.DictWriter`, `dict`, `enumerate`, `fig.savefig`, `fig.suptitle`, `fig.supxlabel`, `float`, `frame.get`, `gb[:, mask].astype`, `int`, `json.dumps`, `json.loads`, `len`, `list`, `map`, `matplotlib.use`, `np.any`, `np.arange`, `np.arccos`, `np.concatenate`, `np.count_nonzero`, `np.degrees`, `np.einsum`, `np.histogram`, `np.isfinite`, `np.isfinite(theta).all`, `np.mean`, `np.quantile`, `np.savez_compressed`, `os.environ.setdefault`, `out.mkdir`, `plt.close`, `plt.subplots`, `print`, `q.astype`, `results.append`, `rows.extend`, `selected.append`, `slice`, `spatial_slices`, `str`, `theta.astype`, `theta.max`, `theta.min`, `ub[:, mask].astype`, `validated_fields`, `writer.writeheader`, `writer.writerows`, `zip`
+
+显式异常：
+
+```python
+ValueError('Angle histogram omitted points')
+ValueError('Mean angle differs from saved bin')
+ValueError('Overlap population differs from saved statistics')
+ValueError('Quartile differs from saved bin')
+ValueError('Selected count or finite-value check failed')
+```
+
+## qpower_analysis/near_zero_diagnostic.py
+
+[完整源码](near_zero_diagnostic.py)
+
+依赖：
+
+```python
+from __future__ import annotations
+import argparse
+import csv
+import json
+import os
+import time
+from pathlib import Path
+import numpy as np
+from jhtdb_pipeline.store import spatial_slices
+from qpower_analysis.conditional_tails import validated_fields, quantile_from_hist
+```
+
+### `run`
+
+[实现：第 17 行](near_zero_diagnostic.py#L17)
+
+```python
+def run(folder: Path) -> None
+```
+
+调用：`(folder / 'config_used.json').read_text`, `(folder / 'run_summary.csv').open`, `(folder / f"conditional_tails/frame_{frame['frame']:06d}_u2_given_q.csv").open`, `(out / 'metadata.json').write_text`, `(out / 'statistics.csv').open`, `(v[finite] * (1000 if field != 'abs_cos' else 2000)).astype`, `ValueError`, `csv.DictReader`, `csv.DictWriter`, `dict`, `edges.items`, `enumerate`, `features.items`, `float`, `frame.get`, `g[slice(None), *key].astype`, `gb.astype`, `gg.min`, `gg.sum`, `hist.items`, `hs.items`, `indices.items`, `int`, `json.dumps`, `json.loads`, `len`, `list`, `max`, `min`, `next`, `np.abs`, `np.bincount`, `np.clip`, `np.count_nonzero`, `np.divide`, `np.einsum`, `np.einsum('i...,i...->...', gg, gg).ravel`, `np.einsum('i...,i...->...', uu, gg).ravel`, `np.einsum('i...,i...->...', uu, uu).ravel`, `np.einsum('izyx,izyx->zyx', ub, gb, optimize=True).ravel`, `np.einsum('izyx,izyx->zyx', ub, gb, optimize=True).ravel().astype`, `np.full_like`, `np.isfinite`, `np.isfinite(gg).all`, `np.isfinite(q).all`, `np.isfinite(u2).all`, `np.linspace`, `np.minimum`, `np.nansum`, `np.ones`, `np.prod`, `np.savez_compressed`, `np.sqrt`, `np.sum`, `np.zeros`, `out.mkdir`, `plot_saved`, `print`, `quantile_from_hist`, `r.update`, `rows.append`, `slice`, `spatial_slices`, `stats.items`, `time.perf_counter`, `ub.astype`, `validated_fields`, `values.items`, `writer.writeheader`, `writer.writerows`, `zip`
+
+显式异常：
+
+```python
+ValueError('Nonfinite pressure gradient')
+ValueError('Nonfinite velocity/power')
+ValueError('Positive normalization scales required')
+ValueError(f"Peak count mismatch: {stats['existing_peak_bin']['count']} vs {peak['count']}")
+```
+
+### `plot_saved`
+
+[实现：第 142 行](near_zero_diagnostic.py#L142)
+
+```python
+def plot_saved(out: Path) -> None
+```
+
+Compare full-grid and near-zero conditional CDFs from saved histograms.
+
+调用：`Path`, `Path('.local/cache/matplotlib').resolve`, `ax.axvline`, `ax.grid`, `ax.plot`, `ax.set`, `axes[0].legend`, `counts.sum`, `dict`, `fig.savefig`, `fig.suptitle`, `matplotlib.use`, `np.cumsum`, `np.isfinite`, `np.load`, `os.environ.setdefault`, `plt.close`, `plt.subplots`, `str`, `zip`
 
 ## qpower_analysis/qpower_analysis.py
 
@@ -459,7 +561,7 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None
 
 ### `conditional_rows`
 
-[实现：第 205 行](qpower_analysis.py#L205)
+[实现：第 207 行](qpower_analysis.py#L207)
 
 ```python
 def conditional_rows(q: np.ndarray, u2: np.ndarray, q_rms: float, u2_mean: float, edges: np.ndarray, min_count: int) -> list[dict[str, Any]]
@@ -469,7 +571,7 @@ def conditional_rows(q: np.ndarray, u2: np.ndarray, q_rms: float, u2_mean: float
 
 ### `plot_slices`
 
-[实现：第 227 行](qpower_analysis.py#L227)
+[实现：第 229 行](qpower_analysis.py#L229)
 
 ```python
 def plot_slices(q: np.ndarray, destination: Path, title: str) -> None
@@ -479,7 +581,7 @@ def plot_slices(q: np.ndarray, destination: Path, title: str) -> None
 
 ### `plot_conditional`
 
-[实现：第 239 行](qpower_analysis.py#L239)
+[实现：第 241 行](qpower_analysis.py#L241)
 
 ```python
 def plot_conditional(rows: list[dict[str, Any]], destination: Path, title: str) -> None
@@ -489,7 +591,7 @@ def plot_conditional(rows: list[dict[str, Any]], destination: Path, title: str) 
 
 ### `voxel_surface`
 
-[实现：第 247 行](qpower_analysis.py#L247)
+[实现：第 249 行](qpower_analysis.py#L249)
 
 ```python
 def voxel_surface(mask: np.ndarray, stride: int, full_shape: tuple[int, ...])
@@ -501,7 +603,7 @@ Exposed cube faces; adjacent cells of the same class share no inner face.
 
 ### `region_html`
 
-[实现：第 276 行](qpower_analysis.py#L276)
+[实现：第 278 行](qpower_analysis.py#L278)
 
 ```python
 def region_html(mask_a: np.ndarray, mask_b: np.ndarray | None, destination: Path, names: tuple[str, str]=('A', 'B'), stride: int=1) -> None
@@ -517,7 +619,7 @@ ValueError('Overlay masks must have the same shape')
 
 ### `_gradient_from_refs`
 
-[实现：第 303 行](qpower_analysis.py#L303)
+[实现：第 305 行](qpower_analysis.py#L305)
 
 ```python
 def _gradient_from_refs(info: dict[str, Any], config: dict[str, Any]) -> tuple[np.ndarray, str]
@@ -527,13 +629,13 @@ def _gradient_from_refs(info: dict[str, Any], config: dict[str, Any]) -> tuple[n
 
 ### `run`
 
-[实现：第 312 行](qpower_analysis.py#L312)
+[实现：第 314 行](qpower_analysis.py#L314)
 
 ```python
 def run(config: dict[str, Any], infos: list[dict[str, Any]]) -> Path
 ```
 
-调用：`(frame_dir / 'alpha_events').mkdir`, `(frame_dir / 'beta_events').mkdir`, `(frame_dir / 'metadata.json').write_text`, `(frame_dir / 'overlays').mkdir`, `(root / 'aggregate').mkdir`, `(root / 'config_used.json').write_text`, `(root / 'run_metadata.json').write_text`, `Path`, `RuntimeError`, `_gradient_from_refs`, `_load`, `_write_csv`, `a_masks.items`, `aggregate.append`, `all_conditional.extend`, `am.sum`, `b_masks.items`, `bm.sum`, `conditional_rows`, `config.get`, `core_fields`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `datetime.now(timezone.utc).strftime`, `edges.tolist`, `event_mask`, `float`, `frame_dir.mkdir`, `int`, `inter.sum`, `json.dumps`, `len`, `list`, `mask.mean`, `mask.sum`, `max`, `np.einsum`, `np.isfinite`, `np.isfinite(gradient).all`, `np.isfinite(velocity).all`, `np.linspace`, `np.mean`, `np.percentile`, `np.std`, `np.sum`, `overlap_rows.append`, `overlap_rows[-1].update`, `percentiles.append`, `plot_conditional`, `plot_slices`, `q.max`, `q.mean`, `q.min`, `random_overlap_baseline`, `range`, `region_html`, `root.exists`, `root.mkdir`, `row.update`, `summary_rows.append`, `threshold_rows.append`, `u2.max`, `u2.mean`, `u2.min`, `zip`
+调用：`(frame_dir / 'metadata.json').write_text`, `(frame_dir / name).mkdir`, `(root / 'aggregate').mkdir`, `(root / 'config_used.json').write_text`, `(root / 'run_metadata.json').write_text`, `Path`, `RuntimeError`, `_gradient_from_refs`, `_load`, `_write_csv`, `aggregate.append`, `all_conditional.extend`, `am.sum`, `bm.sum`, `conditional_rows`, `config.get`, `core_fields`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `datetime.now(timezone.utc).strftime`, `edges.tolist`, `event_mask`, `float`, `frame_dir.mkdir`, `int`, `inter.sum`, `json.dumps`, `len`, `list`, `mask.mean`, `mask.sum`, `masks.items`, `max`, `np.einsum`, `np.isfinite`, `np.isfinite(gradient).all`, `np.isfinite(velocity).all`, `np.linspace`, `np.mean`, `np.percentile`, `np.std`, `np.sum`, `overlap_rows.append`, `overlap_rows[-1].update`, `percentiles.append`, `plot_conditional`, `plot_slices`, `q.max`, `q.mean`, `q.min`, `random_overlap_baseline`, `range`, `region_html`, `root.exists`, `root.mkdir`, `row.update`, `summary_rows.append`, `threshold_rows.append`, `u2.max`, `u2.mean`, `u2.min`, `zip`
 
 显式异常：
 
@@ -544,7 +646,7 @@ RuntimeError(f'refusing to overwrite {root}')
 
 ### `main`
 
-[实现：第 367 行](qpower_analysis.py#L367)
+[实现：第 394 行](qpower_analysis.py#L394)
 
 ```python
 def main(argv: list[str] | None=None) -> int
@@ -599,56 +701,6 @@ def main.update(**values)
 
 调用：`atomic_json`, `datetime.now`, `datetime.now(timezone.utc).isoformat`, `json.dumps`, `print`, `status.update`
 
-## qpower_analysis/scripts/quickstart_qpower_subset.py
-
-[完整源码](scripts/quickstart_qpower_subset.py)
-
-依赖：
-
-```python
-from __future__ import annotations
-import argparse
-from datetime import datetime, timezone
-import json
-from pathlib import Path
-import sqlite3
-import subprocess
-import sys
-import numpy as np
-import zarr
-from jhtdb_pipeline.config import load_config
-from jhtdb_pipeline.input_fields import field_config
-from jhtdb_pipeline.store import array_sha256
-```
-
-模块常量/配置：
-
-```python
-PROJECT = Path(__file__).resolve().parents[2]
-```
-
-### `main`
-
-[实现：第 23 行](scripts/quickstart_qpower_subset.py#L23)
-
-```python
-def main()
-```
-
-调用：`(PROJECT / 'qpower_analysis/config.example.json').read_text`, `(job / 'subset_provenance.json').write_text`, `ValueError`, `analysis.update`, `any`, `argparse.ArgumentParser`, `array_sha256`, `arrays.items`, `cfg.physical_time`, `config_path.write_text`, `connection.close`, `connection.execute`, `connection.execute('SELECT x0,y0,z0,nx,ny,nz,status,sha256 FROM tiles WHERE dataset=? AND time_index=1 AND x0<? AND y0<? AND z0<?', (cfg.dataset, nx, ny, nz)).fetchall`, `datetime.now`, `datetime.now(timezone.utc).strftime`, `dict`, `expected.items`, `expected.update`, `field_config`, `job.mkdir`, `json.dumps`, `json.loads`, `len`, `list`, `load_config`, `np.ascontiguousarray`, `np.isfinite`, `np.isfinite(values).all`, `np.save`, `parser.add_argument`, `parser.parse_args`, `pressure_cfg.catalog_path.resolve`, `pressure_cfg.catalog_path.resolve().as_uri`, `print`, `range`, `reversed`, `root.attrs.get`, `sqlite3.connect`, `str`, `subprocess.run`, `view.raw_store_path`, `zarr.open_group`, `zip`
-
-显式异常：
-
-```python
-ValueError('Crop dimensions must be positive multiples of 16 within the source grid')
-ValueError('Subset contains an unverified pressure tile')
-ValueError('Subset does not have complete catalog coverage')
-ValueError(f'Pressure checksum mismatch at {(x, y, z)}')
-ValueError(f'{field}: incomplete or non-finite subset; no download attempted')
-ValueError(f'{field}: source metadata mismatch or unvalidated velocity')
-ValueError(f'{field}: unexpected source shape')
-```
-
 ## qpower_analysis/threshold_contributions.py
 
 [完整源码](threshold_contributions.py)
@@ -662,13 +714,12 @@ import csv
 import json
 from pathlib import Path
 import numpy as np
-import zarr
 from jhtdb_pipeline.store import spatial_slices
 ```
 
 ### `histograms`
 
-[实现：第 12 行](threshold_contributions.py#L12)
+[实现：第 15 行](threshold_contributions.py#L15)
 
 ```python
 def histograms(q, u2, q_rms, u2_mean, alphas, betas)
@@ -678,19 +729,17 @@ def histograms(q, u2, q_rms, u2_mean, alphas, betas)
 
 ### `run`
 
-[实现：第 30 行](threshold_contributions.py#L30)
+[实现：第 33 行](threshold_contributions.py#L33)
 
 ```python
 def run(folder)
 ```
 
-调用：`(folder / 'config_used.json').read_text`, `(folder / 'contribution_metadata.json').write_text`, `(folder / 'overlap_statistics.csv').open`, `(folder / 'run_summary.csv').open`, `ValueError`, `accumulated.items`, `config.get`, `csv.DictReader`, `csv.DictWriter`, `dict`, `enumerate`, `float`, `frame.get`, `histograms`, `histograms(q, u2, qr, um, alphas, betas).items`, `int`, `json.dumps`, `json.loads`, `len`, `list`, `min`, `np.einsum`, `np.isfinite`, `np.isfinite(q).all`, `np.isfinite(u2).all`, `path.with_suffix`, `print`, `root.attrs.get`, `rows.append`, `set`, `slice`, `sorted`, `spatial_slices`, `temp.open`, `temp.replace`, `totals.append`, `tuple`, `values.sum`, `values[ai:, bi:].sum`, `writer.writeheader`, `writer.writerows`, `zarr.open_group`
+调用：`(folder / 'config_used.json').read_text`, `(folder / 'contribution_metadata.json').write_text`, `(folder / 'overlap_statistics.csv').open`, `(folder / 'run_summary.csv').open`, `ValueError`, `accumulated.items`, `config.get`, `csv.DictReader`, `csv.DictWriter`, `dict`, `enumerate`, `float`, `frame.get`, `histograms`, `histograms(q, u2, qr, um, alphas, betas).items`, `int`, `json.dumps`, `json.loads`, `len`, `list`, `min`, `np.einsum`, `np.isfinite`, `np.isfinite(q).all`, `np.isfinite(u2).all`, `path.with_suffix`, `print`, `rows.append`, `set`, `slice`, `sorted`, `spatial_slices`, `temp.open`, `temp.replace`, `totals.append`, `tuple`, `validated_fields`, `values.sum`, `values[ai:, bi:].sum`, `writer.writeheader`, `writer.writerows`
 
 显式异常：
 
 ```python
-ValueError('Input must be a validated matching frame')
-ValueError('Input shapes differ')
 ValueError('Nonfinite source field')
 ValueError('This contribution report uses positive q events')
 ValueError('Threshold membership differs from existing overlap statistics')

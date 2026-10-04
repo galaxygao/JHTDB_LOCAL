@@ -58,7 +58,7 @@ def test_disk_batch_preserves_shared_work_and_all_full_fields(tmp_path,kind):
     for path,ref in zip(paths,expected):
         result,reference=open_complete_result(path),open_complete_result(ref)
         for field in result:
-            assert result[field].shape[-3:]==cfg.full_shape_zyx
+            assert result[field].shape[-3:]==cfg.stored_shape_zyx(field)
             np.testing.assert_allclose(result[field][:],reference[field][:],rtol=3e-5,atol=3e-6)
     assert not list(cfg.run_path(1).glob('batch-cache-*'))
     assert resource_plan(cfg)['batch_shared_RAM_GiB']==0

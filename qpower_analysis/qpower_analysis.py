@@ -196,10 +196,12 @@ def event_mask(q: np.ndarray, q_rms: float, alpha: float, mode: str) -> np.ndarr
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    if not rows: return
+    if not rows:
+        return
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader(); writer.writerows(rows)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def conditional_rows(q: np.ndarray, u2: np.ndarray, q_rms: float, u2_mean: float,
@@ -313,46 +315,71 @@ def run(config: dict[str, Any], infos: list[dict[str, Any]]) -> Path:
     # Preflight has completed before this function is entered or creates output.
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     root = Path(config.get("output_root", "qpower_analysis/output")) / run_id
-    if root.exists(): raise RuntimeError(f"refusing to overwrite {root}")
-    root.mkdir(parents=True); (root / "aggregate").mkdir()
+    if root.exists():
+        raise RuntimeError(f"refusing to overwrite {root}")
+    root.mkdir(parents=True)
+    (root / "aggregate").mkdir()
     (root / "config_used.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     percentiles = []
     for info in infos:
-        velocity = _load(info["velocity"]); u2 = np.einsum("izyx,izyx->zyx", velocity, velocity)
-        mean = float(u2.mean()); percentiles.append(float(np.percentile(u2 / mean, config.get("conditional_percentile", 99.9))))
+        velocity = _load(info["velocity"])
+        u2 = np.einsum("izyx,izyx->zyx", velocity, velocity)
+        mean = float(u2.mean())
+        percentiles.append(float(np.percentile(u2 / mean, config.get("conditional_percentile", 99.9))))
         del velocity, u2
-    upper = max(percentiles); edges = np.linspace(0, upper, int(config.get("n_conditional_bins", 60)) + 1)
+    upper = max(percentiles)
+    edges = np.linspace(0, upper, int(config.get("n_conditional_bins", 60)) + 1)
     summary_rows, threshold_rows, overlap_rows, all_conditional = [], [], [], []
-    mode = config.get("event_mode", "positive"); alphas = config.get("alphas", [1,2,3,4]); betas = config.get("betas", [1,1.5,2,3])
+    mode = config.get("event_mode", "positive")
+    alphas = config.get("alphas", [1,2,3,4])
+    betas = config.get("betas", [1,1.5,2,3])
     for frame_cfg, info in zip(config["frames"], infos):
-        velocity = _load(info["velocity"]); gradient, gradient_source = _gradient_from_refs(info, config)
-        if not np.isfinite(velocity).all() or not np.isfinite(gradient).all(): raise RuntimeError(f"frame {frame_cfg['frame']} contains NaN or Inf")
+        velocity = _load(info["velocity"])
+        gradient, gradient_source = _gradient_from_refs(info, config)
+        if not np.isfinite(velocity).all() or not np.isfinite(gradient).all():
+            raise RuntimeError(f"frame {frame_cfg['frame']} contains NaN or Inf")
         q, u2, q_rms, u2_mean = core_fields(velocity, gradient)
-        frame_dir = root / f"frame_{int(frame_cfg['frame']):06d}"; frame_dir.mkdir(); (frame_dir / "alpha_events").mkdir(); (frame_dir / "beta_events").mkdir(); (frame_dir / "overlays").mkdir()
+        frame_dir = root / f"frame_{int(frame_cfg['frame']):06d}"
+        frame_dir.mkdir()
+        for name in ("alpha_events", "beta_events", "overlays"):
+            (frame_dir / name).mkdir()
         summary = {"frame": frame_cfg["frame"], "time": frame_cfg["time"], "q_min": q.min(), "q_max": q.max(), "q_mean": q.mean(), "q_rms": q_rms, "u2_min": u2.min(), "u2_max": u2.max(), "u2_mean": u2_mean, "fraction_q_positive": np.mean(q > 0)}
-        summary_rows.append(summary); _write_csv(frame_dir / "frame_summary.csv", [summary])
+        summary_rows.append(summary)
+        _write_csv(frame_dir / "frame_summary.csv", [summary])
         plot_slices(q, frame_dir / "qpower_slices.png", f"frame={frame_cfg['frame']} t={frame_cfg['time']} q_rms={q_rms:.6g}")
         cond = conditional_rows(q, u2, q_rms, u2_mean, edges, int(config.get("min_bin_count", 100)))
-        for row in cond: row.update(frame=frame_cfg["frame"], time=frame_cfg["time"])
-        _write_csv(frame_dir / "conditional_q_given_u2.csv", cond); plot_conditional(cond, frame_dir / "conditional_q_given_u2.png", f"frame={frame_cfg['frame']} t={frame_cfg['time']}"); all_conditional.extend(cond)
-        a_masks = {float(a): event_mask(q, q_rms, float(a), mode) for a in alphas}; b_masks = {float(b): u2 > float(b) * u2_mean for b in betas}
+        for row in cond:
+            row.update(frame=frame_cfg["frame"], time=frame_cfg["time"])
+        _write_csv(frame_dir / "conditional_q_given_u2.csv", cond)
+        plot_conditional(cond, frame_dir / "conditional_q_given_u2.png", f"frame={frame_cfg['frame']} t={frame_cfg['time']}")
+        all_conditional.extend(cond)
+        a_masks = {float(a): event_mask(q, q_rms, float(a), mode) for a in alphas}
+        b_masks = {float(b): u2 > float(b) * u2_mean for b in betas}
         stride = int(config.get("visualization_stride", 1))
-        for a, mask in a_masks.items():
-            threshold_rows.append({"frame": frame_cfg["frame"], "time": frame_cfg["time"], "kind": "alpha", "threshold": a, "count": int(mask.sum()), "fraction": float(mask.mean()), "event_mode": mode})
-            region_html(mask, None, frame_dir / "alpha_events" / f"alpha_{a}.html", (f"A alpha={a}", ""), stride)
-        for b, mask in b_masks.items():
-            threshold_rows.append({"frame": frame_cfg["frame"], "time": frame_cfg["time"], "kind": "beta", "threshold": b, "count": int(mask.sum()), "fraction": float(mask.mean()), "event_mode": mode})
-            region_html(mask, None, frame_dir / "beta_events" / f"beta_{b}.html", (f"B beta={b}", ""), stride)
+        for kind, label, masks in (("alpha", "A", a_masks), ("beta", "B", b_masks)):
+            for threshold, mask in masks.items():
+                threshold_rows.append({
+                    "frame": frame_cfg["frame"], "time": frame_cfg["time"], "kind": kind,
+                    "threshold": threshold, "count": int(mask.sum()),
+                    "fraction": float(mask.mean()), "event_mode": mode,
+                })
+                region_html(mask, None, frame_dir / f"{kind}_events" / f"{kind}_{threshold}.html",
+                            (f"{label} {kind}={threshold}", ""), stride)
         pairs = config.get("overlay_pairs") or [[a,b] for a in alphas for b in betas]
         for a, b in pairs:
-            aa, bb = float(a), float(b); am, bm = a_masks[aa], b_masks[bb]; inter = am & bm; ac, bc, ic = int(am.sum()), int(bm.sum()), int(inter.sum())
+            aa, bb = float(a), float(b)
+            am, bm = a_masks[aa], b_masks[bb]
+            inter = am & bm
+            ac, bc, ic = int(am.sum()), int(bm.sum()), int(inter.sum())
             overlap_rows.append({"frame": frame_cfg["frame"], "time": frame_cfg["time"], "alpha": aa, "beta": bb, "a_count": ac, "b_count": bc, "intersection_count": ic, "a_fraction": ac/am.size, "b_fraction": bc/bm.size, "intersection_fraction": ic/am.size, "p_a_given_b": ic/bc if bc else math.nan, "p_b_given_a": ic/ac if ac else math.nan, "event_mode": mode})
             overlap_rows[-1].update(random_overlap_baseline(ac, bc, am.size, ic))
             region_html(am, bm, frame_dir / "overlays" / f"alpha_{aa}_beta_{bb}.html", (f"A {mode}, alpha={aa}", f"B beta={bb}"), stride)
         metadata = {"frame": frame_cfg["frame"], "gradient_source": gradient_source, "shape_zyx": list(q.shape), "conditional_points_above_upper": int(np.sum(u2/u2_mean > upper)), "conditional_upper": upper}
         (frame_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         del velocity, gradient, q, u2
-    _write_csv(root / "run_summary.csv", summary_rows); _write_csv(root / "threshold_statistics.csv", threshold_rows); _write_csv(root / "overlap_statistics.csv", overlap_rows)
+    _write_csv(root / "run_summary.csv", summary_rows)
+    _write_csv(root / "threshold_statistics.csv", threshold_rows)
+    _write_csv(root / "overlap_statistics.csv", overlap_rows)
     _write_csv(root / "aggregate" / "conditional_q_given_u2_all_frames.csv", all_conditional)
     aggregate = []
     for i in range(len(edges)-1):
@@ -366,13 +393,17 @@ def run(config: dict[str, Any], infos: list[dict[str, Any]]) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="3-D pressure-power analysis")
-    parser.add_argument("--config", required=True, type=Path); parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args(argv)
     try:
-        config = json.loads(args.config.read_text(encoding="utf-8")); infos = preflight(config)
+        config = json.loads(args.config.read_text(encoding="utf-8"))
+        infos = preflight(config)
         print(f"Pressure preflight passed for {len(infos)} frame(s).")
-        if args.preflight_only: return 0
-        print(f"Analysis complete: {run(config, infos)}"); return 0
+        if args.preflight_only:
+            return 0
+        print(f"Analysis complete: {run(config, infos)}")
+        return 0
     except (PreflightError, OSError, ValueError, KeyError) as exc:
         print(f"PRECHECK FAILED: {exc}", file=sys.stderr); return 2
 

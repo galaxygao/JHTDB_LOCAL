@@ -1,0 +1,44 @@
+{
+  "frame": {
+    "frame": 1,
+    "time": 0.0,
+    "velocity_path": "/Users/xingqungao/Desktop/Sync_File/26FA/JHU_DATA/.local/state/inputs/t000001/velocity_cache.zarr",
+    "velocity_key": "velocity",
+    "pressure_path": null,
+    "pressure_key": "pressure",
+    "pressure_gradient_path": "/Users/xingqungao/Desktop/Sync_File/26FA/JHU_DATA/.local/state/inputs/t000001/pressure_gradient_fd4_cache.zarr",
+    "pressure_gradient_keys": [
+      "pressure_gradient"
+    ]
+  },
+  "grid_shape_zyx": [
+    1024,
+    1024,
+    1024
+  ],
+  "grid_count": 1073741824,
+  "q_rms": 3.177117347717285,
+  "u2_mean": 1.365438461303711,
+  "gradient_rms": 4.840301863274839,
+  "gradient_min": 0.001052317239416128,
+  "exact_zero_counts": {
+    "velocity_vector": 0,
+    "gradient_vector": 0,
+    "q_float32": 12,
+    "q_float64_dot": 0
+  },
+  "global_cos_rms": 0.5621020972180232,
+  "peak_bin": {
+    "left": -0.03921048685432171,
+    "right": 0.022034756306121395,
+    "count": 78474960
+  },
+  "definitions": {
+    "speed_small": "|u| < 0.1 sqrt(mean(u2))",
+    "gradient_small": "|grad(P)| < 0.1 sqrt(mean(|grad(P)|2))",
+    "perpendicular": "|cos(angle(u,grad(P)))| < 0.1; 84.2608 to 95.7392 degrees",
+    "amplitude": "|u| |grad(P)| / q_rms"
+  },
+  "method": "Two full-grid passes; float64 norms and angles; existing float32 q for selection; exact counts and float64 sums; quartiles interpolated from histograms (speed/gradient step 0.001, abs cosine step 0.0005); features overlap, not causal attribution",
+  "elapsed_seconds": 76.03778341700672
+}

@@ -145,10 +145,11 @@ Angle plots also show an orange dashed curve on an independent right axis: the w
 ## 辅助入口与目录
 
 - `scripts/download_then_qpower.py --job-dir qpower_analysis/output/qpower_jobs/NEW_JOB`：已有速度前提下下载服务端梯度，依次 preflight、分析；新 job-dir 必须不存在，失败停止并保存 status/log。
-- `scripts/quickstart_qpower_subset.py --config configs/pipeline.yaml --shape-xyz 128 128 64`：仅使用已校验服务端梯度子域，不发网络请求，不代表全域统计。调用时脚本前加 `qpower_analysis/`。
 - 新部署推荐 [deploy 本地 FD4 流程](../docs/deployment.md)。config.example.json 是服务端梯度例子；deploy 生成的配置会指向本地 FD4，二者不可混用。
 - `output/qpower_jobs/`、`output/qpower_subset/` 保留搬入的历史任务；其中记录的旧绝对路径不改写。`output/logs/` 放子项目补充日志。
 - 后处理依赖顺序：先主分析，再 conditional_tails，再 conditional_ranges；threshold_contributions 和 angle_statistics 可在主分析后单独执行。
+
+tails、ranges 和 contributions 的已校验帧读取统一在 `conditional_tails.validated_fields`，只打开元数据与数组引用，检查 status、帧号、物理时间及 shape；不会在该函数中加载全域数组。angles 保留自身校验与选定区域读取逻辑。后处理脚本同时支持上述直接路径命令和 `python -m qpower_analysis.<脚本名>`。条件尾部与范围测试集中在 `tests/test_conditional_tails.py`；具体精简与输出对照见 [compact 记录](../docs/compact_progress.md)。
 
 ## 配置字段与实现限制
 

@@ -111,19 +111,29 @@ def build_flux_points(records: list[tuple[Path, dict, dict]], *, grid_size: int,
 
 调用：`FluxPoint`, `Path`, `_smooth_group`, `float`, `manifest.get`, `math.log`, `math.sqrt`, `points.append`, `zip`
 
-### `make_figure`
+### `_flux_figure`
 
 [实现：第 151 行](plot_pi_epsilon_vs_k.py#L151)
+
+```python
+def _flux_figure(points: list[FluxPoint], epsilon_reference: float, *, log_k: bool) -> go.Figure
+```
+
+调用：`figure.add_hline`, `figure.add_hrect`, `figure.add_trace`, `figure.update_layout`, `getattr`, `go.Figure`, `go.Scatter`, `math.isnan`, `sorted`
+
+### `make_figure`
+
+[实现：第 235 行](plot_pi_epsilon_vs_k.py#L235)
 
 ```python
 def make_figure(points: list[FluxPoint], epsilon_reference: float) -> go.Figure
 ```
 
-调用：`figure.add_hline`, `figure.add_hrect`, `figure.add_trace`, `figure.update_layout`, `go.Figure`, `go.Scatter`, `math.isnan`, `sorted`
+调用：`_flux_figure`
 
 ### `make_log_k_figure`
 
-[实现：第 229 行](plot_pi_epsilon_vs_k.py#L229)
+[实现：第 241 行](plot_pi_epsilon_vs_k.py#L241)
 
 ```python
 def make_log_k_figure(points: list[FluxPoint], epsilon_reference: float) -> go.Figure
@@ -131,11 +141,11 @@ def make_log_k_figure(points: list[FluxPoint], epsilon_reference: float) -> go.F
 
 Plot the same flux data against the common half-gain wavenumber.
 
-调用：`figure.add_hline`, `figure.add_hrect`, `figure.add_trace`, `figure.update_layout`, `go.Figure`, `go.Scatter`, `math.isnan`, `sorted`
+调用：`_flux_figure`
 
 ### `write_outputs`
 
-[实现：第 304 行](plot_pi_epsilon_vs_k.py#L304)
+[实现：第 248 行](plot_pi_epsilon_vs_k.py#L248)
 
 ```python
 def write_outputs(output_dir: Path, points: list[FluxPoint], *, epsilon_reference: float, viscosity: float, raw_gradient_rms: float, eta_reference: float, epsilon_instantaneous: float, eta_instantaneous: float, time_index: int) -> Path
@@ -145,7 +155,7 @@ def write_outputs(output_dir: Path, points: list[FluxPoint], *, epsilon_referenc
 
 ### `main`
 
-[实现：第 392 行](plot_pi_epsilon_vs_k.py#L392)
+[实现：第 336 行](plot_pi_epsilon_vs_k.py#L336)
 
 ```python
 def main(argv: list[str] | None=None) -> int

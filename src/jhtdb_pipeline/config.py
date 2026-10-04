@@ -9,7 +9,26 @@ from typing import Any, Mapping
 import yaml
 
 
-RESULT_SCHEMA_VERSION = 7
+RESULT_SCHEMA_VERSION = 8
+READABLE_RESULT_SCHEMAS = (7, 8)
+SAMPLED_FIELDS = ("gradient", "velocity_bar", "gradient_bar")
+VECTOR_STORAGE_STRIDE = 2
+
+
+def field_sampling(grid_shape: tuple[int, int, int], schema_version: int = RESULT_SCHEMA_VERSION) -> dict[str, dict[str, list[int]]]:
+    """Map stored array indices to the original periodic grid, field by field."""
+    fields = ("velocity", *SAMPLED_FIELDS, "work_full", "work_resolved", "pi", "s_bar", "regime")
+    sampling = {}
+    for name in fields:
+        stride = VECTOR_STORAGE_STRIDE if schema_version == 8 and name in SAMPLED_FIELDS else 1
+        sampling[name] = {
+            "origin_xyz": [0, 0, 0],
+            "stride_xyz": [stride] * 3,
+            "shape_xyz": [(size + stride - 1) // stride for size in grid_shape],
+        }
+    return sampling
+
+
 FILTER_TYPES = ("gaussian", "smooth_sharp")
 
 
@@ -176,14 +195,21 @@ class PipelineConfig:
 
     def shared_result_path(self, time_index: int) -> Path:
         self.physical_time(time_index)
-        return self.result_root / f"t{time_index:06d}_shared_full"
+        return self.result_root / f"t{time_index:06d}_shared_stride2"
 
     def shared_staging_result_path(self, time_index: int) -> Path:
         self.physical_time(time_index)
-        return self.result_root / ".staging" / f"t{time_index:06d}_shared_full"
+        return self.result_root / ".staging" / f"t{time_index:06d}_shared_stride2"
 
     def shared_gradient_store_path(self, time_index: int) -> Path:
-        return self.shared_result_path(time_index) / "full_raw.zarr"
+        return self.shared_result_path(time_index) / "sampled_raw.zarr"
+
+    @property
+    def field_sampling(self) -> dict[str, dict[str, list[int]]]:
+        return field_sampling(self.grid_shape)
+
+    def stored_shape_zyx(self, field: str) -> tuple[int, int, int]:
+        return tuple(reversed(self.field_sampling[field]["shape_xyz"]))
 
     @property
     def full_shape_zyx(self) -> tuple[int, int, int]:
@@ -198,12 +224,12 @@ class PipelineConfig:
     @property
     def result_uncompressed_bytes(self) -> int:
         points = math.prod(self.grid_shape)
-        # Filtered velocity (3), filtered gradient (9), four scalars and regime.
-        return points * ((3 + 9 + 4) * 4 + 1)
+        sampled_points = math.prod(self.stored_shape_zyx("velocity_bar"))
+        return sampled_points * (3 + 9) * 4 + points * (4 * 4 + 1)
 
     @property
     def shared_gradient_uncompressed_bytes(self) -> int:
-        return math.prod(self.grid_shape) * 9 * 4
+        return math.prod(self.stored_shape_zyx("gradient")) * 9 * 4
 
     def physical_time(self, time_index: int) -> float:
         if time_index < 1:

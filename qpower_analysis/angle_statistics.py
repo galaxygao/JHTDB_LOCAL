@@ -89,12 +89,18 @@ def plot_saved(out):
         for label,r in zip(('Lower tail','Upper tail'),(rows[0],rows[-1])):
             tails.append(f"{label}: {100*r['selected_volume_fraction']:.2f}% selected volume; mean angle {r['mean_angle_deg']:.2f}°; mean cos {r['mean_cos_theta']:.3f}")
         bottom.bar([r['left'] for r in center],[100*r['selected_volume_fraction'] for r in center],width=[r['right']-r['left'] for r in center],align='edge',alpha=.65,edgecolor='white',linewidth=.3)
-        bottom.set(xlabel='q / q_rms' if col==0 else 'u² / mean(u²)',ylabel='Selected volume\nper bin (%)',ylim=(0,None),xlim=(center[0]['left'],center[-1]['right']))
+        xmin = float(result['alpha'] if col == 0 else result['beta'])
+        xmax = center[-1]['right']
+        bottom.set(xlabel='q / q_rms' if col==0 else 'u² / mean(u²)',ylabel='Selected volume\nper bin (%)',ylim=(0,None),xlim=(xmin,xmax))
+        # Show the selection threshold at the left edge, even if the automatic
+        # locator omits it. Both rows share this horizontal axis.
+        ticks = bottom.get_xticks()
+        bottom.set_xticks(np.unique(np.r_[xmin, ticks[(ticks > xmin) & (ticks <= xmax)]]))
         top.text(.02,.02,'\n'.join(tails),transform=top.transAxes,fontsize=8,color='firebrick',bbox=dict(facecolor='white',alpha=.85,edgecolor='none'))
         for ax in axes[:,col]: ax.grid(alpha=.2)
     fig.suptitle(f"Positive overlap: alpha={result['alpha']:g}, beta={result['beta']:g}; mean angle={result['mean_angle_deg']:.2f}°")
     fig.supxlabel(f"Bars: fraction of SELECTED volume ({100*result['volume_fraction']:.3f}% of full domain). Central bars sum to 95%; each tail holds 2.5%.\nShared x axes, equal-width central bins, linear volume axis. Shading: middle 50% of point values, not a confidence interval.",fontsize=10)
-    fig.savefig(out/'angle_relationships.png',dpi=180);fig.savefig(out/'angle_relationships.pdf');plt.close(fig)
+    fig.savefig(out/'angle_relationships.png',dpi=180);plt.close(fig)
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--run-dir',type=Path,required=True);parser.add_argument('--alpha',type=float,default=1.);parser.add_argument('--beta',type=float,default=1.)

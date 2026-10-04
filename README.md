@@ -2,7 +2,7 @@
 
 本项目下载 `isotropic1024coarse` 的完整 `1024³` 速度场，在 `[0,2π)³` 周期域上进行 Gaussian / smooth-sharp 谱滤波、速度梯度、能量传输、六 regime 统计和 QA，并提供只读 Streamlit GUI。压力下载及 FD4 梯度用于独立 QPower 分析；block statistics、Pi PDF、切片、密度图和通量平台分别由子项目提供。
 
-当前正式结果格式为 **v7，全域保存**。文档只维护 v6、v7 两版主结果格式；旧中心裁剪结果需从完整速度重建，不能改版本号充当全域结果。本文全部命令从项目根目录执行。
+当前正式结果格式为 **v8，全域计算、向量场步长 2 存储**。共享原始梯度、滤波速度和滤波梯度保存原网格 `[::2,::2,::2]` 的 `512³` 点；原始速度输入及所有标量场保留完整 `1024³`。本文全部命令从项目根目录执行。
 
 ## 文档入口与新会话阅读顺序
 
@@ -12,18 +12,53 @@
 | [完整操作 handbook](docs/handbook.md) | 每项配置、GUI、单尺度/多尺度、自定义参数、恢复与统计 |
 | [完整命令参考](docs/cli_reference.md) | 所有 Python 入口与参数，含子项目和维护工具 |
 | [系统迁移](docs/system_migration.md) | Windows/macOS/Linux 环境、输入迁移、SQLite、绝对路径引用 |
-| [数据格式与版本更新](docs/data_versions.md) | v6/v7 字段、shape、dtype、布局、重建脚本与命令 |
+| [数据格式与重建](docs/data_versions.md) | v7/v8 字段、采样坐标、shape、dtype、布局与重建命令 |
 | [部署与压力流程](docs/deployment.md) | `deploy.py` 分阶段运行、后台日志、本地 FD4、QPower |
 | [macOS 内存与磁盘方案](docs/macos_main_pipeline_run.md) | memmap、线程与资源限制 |
 | [服务端压力梯度入口](docs/pressure_gradient_loading.md) | 独立 `fd4noint` 数据源，与本地 FD4 区分 |
 | [代码逐函数索引](docs/code_reference.md) | 每个模块、函数签名、源码位置、调用与异常；子项目有独立索引 |
 | [文档维护与校验](docs/maintenance.md) | 更新命令、回归范围、目录责任 |
+| [Compact 进度](docs/compact_progress.md) | 已完成精简、行为对照、验证与保留决定 |
 
 新会话先读本文，再读 architecture、data_versions、handbook；按任务进入对应子项目 README 与函数索引。源码和生成索引共同构成代码细节参考，公式与运行约束以人工审阅的实现说明为准。
 
 ## 环境与资源
 
-Python **3.9+**；依赖在 [pyproject.toml](pyproject.toml)。各系统重建自己的虚拟环境，不复制环境目录。Windows 生产配置使用 RAM FFT；24 GB Mac 使用 `configs/pipeline.macos.yaml` 的磁盘 FFT。完整速度输入约 12 GiB，五尺度永久数据未压缩约 373 GiB，另需约 84.09 GiB 共享磁盘缓存、工作区和安全余量。以 `plan`/预检为准；24 GB Mac 的完整域峰值尚未实测。
+Python **3.9+**；依赖在 [pyproject.toml](pyproject.toml)。各系统重建自己的虚拟环境，不复制环境目录。Windows 生产配置使用 RAM FFT；24 GB Mac 使用 `configs/pipeline.macos.yaml` 的磁盘 FFT。完整速度输入约 12 GiB，五尺度永久数据未压缩约 131.5 GiB，另需约 84.09 GiB 共享磁盘缓存、工作区和安全余量。以 `plan`/预检为准；24 GB Mac 的完整域峰值尚未实测。
+
+### 进入和退出虚拟环境
+
+从项目根目录运行。环境目录不存在时，先按对应平台命令创建并安装依赖；激活不是必须的，文档中的 `.venv-*/bin/python` 或 `.venv\Scripts\python.exe` 也可以直接调用。
+
+```bash
+# macOS
+source .venv-mac/bin/activate
+
+# Linux
+source .venv-linux/bin/activate
+
+# 查看当前解释器
+which python
+python --version
+
+# 退出
+deactivate
+```
+
+Windows PowerShell：
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python --version
+deactivate
+```
+
+如果 PowerShell 禁止当前用户执行激活脚本，只对当前窗口临时放开：
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
 
 ### Windows / PowerShell：主流水线全流程
 
@@ -73,6 +108,7 @@ bash scripts/run_main_macos.sh
 ```
 
 逐条执行，失败即停。GUI 地址 `http://127.0.0.1:8501`。默认 sigma 为 `10 15 30 55 75`，smooth-sharp 的 `alpha=w/k_c=0.1171875`。`process-batch` 顺序复用共享梯度与频谱，不要另开并行 sigma 任务。
+macOS 脚本默认第 1 帧；其他帧需显式传参，例如 `bash scripts/run_main_macos.sh 500`，并同步修改其余命令的 `--time-index`。
 
 ### Linux
 

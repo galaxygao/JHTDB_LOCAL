@@ -12,37 +12,13 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from jhtdb_pipeline.config import PipelineConfig, result_zarr_name
 from jhtdb_pipeline.cq import REGIME_KEYS
-from jhtdb_pipeline.store import spatial_slices
+from jhtdb_pipeline.store import chunk_count, spatial_slices
+from jhtdb_pipeline.physics import sign_regime_masks as _regime_masks
 from jhtdb_pipeline.validation import atomic_json
 
 
 REGIME_PI_REPORT_VERSION = 1
 DEFAULT_REGIME_PI_OUTPUT_ROOT = Path("regime_pi/output")
-
-
-def _chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int:
-    return int(
-        np.prod(
-            [(size + chunk - 1) // chunk for size, chunk in zip(shape, chunks)],
-            dtype=np.int64,
-        )
-    )
-
-
-def _regime_masks(full: np.ndarray, resolved: np.ndarray) -> tuple[np.ndarray, ...]:
-    full_negative = full < 0.0
-    resolved_negative = resolved < 0.0
-    q1 = ~full_negative & ~resolved_negative
-    q4 = full_negative & resolved_negative
-    delta_nonnegative = (full - resolved) >= 0.0
-    return (
-        q1 & delta_nonnegative,
-        q1 & ~delta_nonnegative,
-        ~full_negative & resolved_negative,
-        full_negative & ~resolved_negative,
-        q4 & delta_nonnegative,
-        q4 & ~delta_nonnegative,
-    )
 
 
 def compute_regime_pi_statistics(root: Any, cfg: PipelineConfig) -> dict[str, Any]:
@@ -74,7 +50,7 @@ def compute_regime_pi_statistics(root: Any, cfg: PipelineConfig) -> dict[str, An
     ) as progress:
         task = progress.add_task(
             "full-domain Pi direction by regime",
-            total=_chunk_count(expected, chunks),
+            total=chunk_count(expected, chunks),
         )
         for key in spatial_slices(expected, chunks):
             values = np.asarray(pi[key], dtype=np.float32)

@@ -1,6 +1,8 @@
 # 文档和目录维护
 
-根 README 管项目功能、平台端到端流程和导航；docs 管共用实现/配置/迁移/两版数据格式；子项目 README 管本项目公式、输入输出和运行。每个子项目的 scripts、tests、output、缓存应放在本目录内；共享正式输入/结果及 CLI/GUI 接口归核心。生成结果中的 provenance 不为了修复展示链接而重写。
+根 README 管项目功能、平台端到端流程和导航；docs 管共用实现/配置/迁移/v7/v8 数据格式；子项目 README 管本项目公式、输入输出和运行。每个子项目的 scripts、tests、output、缓存应放在本目录内；共享正式输入/结果及 CLI/GUI 接口归核心。生成结果中的 provenance 不为了修复展示链接而重写。
+
+代码精简的当前范围、行为对照和后续候选见 [Compact 进度](compact_progress.md)。测试文件合并后的验证命令仍使用下面的目录级入口。
 
 ## 更新文档
 
@@ -11,7 +13,7 @@
 
 生成器用 Python AST 读取项目 Python 源码，生成核心及每个子项目的逐函数参考，以及全部 argparse 参数源码参考；不导入科学模块，不下载数据，不读取 token 或大型输出。`--check` 检查生成文档是否落后以及文档间本地链接是否存在。历史输出报告中的旧外部路径不纳入维护导航。
 
-索引不能代替人工说明。改代码后同步修改公式、参数解释、系统步骤、数据版本表，再生成索引。只保留最近两版主结果 schema 的人工格式说明与更新工具。输入/报告的独立版本不属于主结果的两版窗口。
+索引不能代替人工说明。改代码后同步修改公式、参数解释、系统步骤、数据版本表，再生成索引。主结果维护 v7 完整存储与 v8 步长 2 向量场存储的说明；新计算写 v8。输入和报告各自维护独立版本。
 
 ## 验证
 
@@ -28,7 +30,6 @@ Windows 用 `.venv\Scripts\python.exe` 或 deploy 创建的 `.venv-windows\Scrip
 | 根 README_DEPLOY.md | [deployment.md](deployment.md) |
 | 根 3D_QPOWER_ANALYSIS_TASK.md | [QPower TASK](../qpower_analysis/TASK.md) |
 | scripts/download_then_qpower.py | qpower_analysis/scripts/download_then_qpower.py |
-| scripts/quickstart_qpower_subset.py | qpower_analysis/scripts/quickstart_qpower_subset.py |
 | outputs/qpower_jobs、qpower_subset | qpower_analysis/output 下同名目录 |
 | tests 中各分析项目测试 | 对应子项目 tests/ |
 
@@ -40,3 +41,26 @@ Windows 用 `.venv\Scripts\python.exe` 或 deploy 创建的 `.venv-windows\Scrip
 - editable 安装成功；19 个主库、部署、子项目和重建入口 `--help` 通过。
 - 50 个 Python 源文件生成 9 份函数/CLI 参考；生成一致性与维护文档本地链接检查通过。
 - 未触发真实科学数据下载、1024³ 重建或 Windows/Linux 实机运行；这些验证仍按平台手册执行。
+
+## 全域存储清理与第 500 帧诊断
+
+正式结果和重建工具只支持 v7 完整域，已移除 QPower 子域导出入口及旧结果 schema 的重建支持。
+根 README、格式说明、系统迁移、操作手册、子项目说明和生成索引已同步。
+新增回归覆盖未知空间存储选项与不支持的重建来源版本。
+
+验证：`.venv-mac/bin/python -m pytest tests qpower_analysis/tests -q`，
+**131 passed**，两条已有 xarray/NumPy 弃用 warning；生成参考、本地链接、shell 语法与
+`git diff --check` 通过。第 500 帧真实启动停在磁盘预检：349.50 GiB 可用，
+521.11 GiB 所需。字段容量和无损压缩级别样本比较见
+[macOS 存储与压缩说明](macos_main_pipeline_run.md)。
+
+## v8 步长 2 存储验证
+
+新计算仍使用完整 `1024³`，共享原始梯度、滤波速度和滤波梯度仅永久保存
+`[::2,::2,::2]`；其他字段保留所有格点。manifest 与 Zarr attrs 逐字段记录采样 origin、stride、shape。
+读写 shape 校验、共享引用、空间预算、GUI 切片和图轴已同步；v7 全点结果仍可读取。
+
+全套目录级测试 **160 passed**，两条已有 xarray/NumPy 弃用 warning。
+覆盖采样相位、奇数边界、跨 chunk 写入、三种切片法向的坐标对齐、内存/磁盘 FFT 一致性、
+全域 Pi 和能量恒等式、各子项目统计与 GUI 全页。生成文档/链接检查和 `git diff --check` 通过。
+第 500 帧五尺度空间预检已通过；输入已存在时要求约 279.61 GiB 可用空间。

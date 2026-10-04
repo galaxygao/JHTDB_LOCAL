@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,8 +13,10 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
-from .store import spatial_slices
-from .validation import atomic_json
+from .store import (
+    chunk_count, load_chained_report, report_metadata, report_summary, spatial_slices,
+)
+from .validation import atomic_json, update_report_metadata
 
 
 SBAR_REPORT_VERSION = 3
@@ -63,15 +64,6 @@ def compute_sbar_qa(
     residual_sumsq = 0.0
     residual_maximum = 0.0
     point_count = 0
-    chunk_count = int(
-        np.prod(
-            [
-                (size + chunk - 1) // chunk
-                for size, chunk in zip(shape, chunks)
-            ],
-            dtype=np.int64,
-        )
-    )
     with Progress(
         SpinnerColumn("line"),
         TextColumn("{task.description}"),
@@ -80,7 +72,7 @@ def compute_sbar_qa(
         TimeElapsedColumn(),
         console=Console(),
     ) as progress:
-        task = progress.add_task("full-domain S_bar QA", total=chunk_count)
+        task = progress.add_task("full-domain S_bar QA", total=chunk_count(shape, chunks))
         for key in spatial_slices(shape, chunks):
             values = {
                 name: np.asarray(array[key], dtype=np.float32)
@@ -190,40 +182,8 @@ def write_sbar_artifacts(
     return report_hash
 
 
-def _report_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _load_chained_report(result_dir: Path, root: Any) -> dict[str, Any] | None:
-    path = result_dir / "s_bar_qa.json"
-    manifest_path = result_dir / "manifest.json"
-    complete_path = result_dir / "COMPLETE"
-    if (
-        not path.is_file()
-        or not (result_dir / "s_bar_global_totals.html").is_file()
-        or not manifest_path.is_file()
-        or not complete_path.is_file()
-    ):
-        return None
-    try:
-        report = json.loads(path.read_text(encoding="utf-8"))
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        complete = json.loads(complete_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    report_hash = _report_hash(path)
-    manifest_hash = _report_hash(manifest_path)
-    valid = (
-        report.get("report_version") == SBAR_REPORT_VERSION
-        and report.get("scope") == "full_domain"
-        and manifest.get("s_bar_qa_report_version") == SBAR_REPORT_VERSION
-        and manifest.get("s_bar_qa_report_hash") == report_hash
-        and root.attrs.get("s_bar_qa_report_version") == SBAR_REPORT_VERSION
-        and root.attrs.get("s_bar_qa_report_hash") == report_hash
-        and root.attrs.get("manifest_hash") == manifest_hash
-        and complete.get("manifest_hash") == manifest_hash
-    )
-    return report if valid else None
+    return load_chained_report(result_dir, root, "s_bar_qa", SBAR_REPORT_VERSION, html_name="s_bar_global_totals.html")
 
 
 def _reclassify_report(
@@ -333,33 +293,11 @@ def _run_sbar_qa_locked(
     report_hash = write_sbar_artifacts(result_dir, report)
     qa_path = result_dir / "qa.json"
     qa = json.loads(qa_path.read_text(encoding="utf-8"))
-    qa["s_bar_global"] = {
-        "passed": report["passed"],
-        "scope": report["scope"],
-        "report_version": report["report_version"],
-        "report_hash": report_hash,
-        "metrics": report["metrics"],
-    }
+    qa["s_bar_global"] = report_summary(report, report_hash, metrics=report["metrics"])
     atomic_json(qa_path, qa)
-    manifest_path = result_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest.update(
-        {
-            "s_bar_qa_passed": report["passed"],
-            "s_bar_qa_report_version": report["report_version"],
-            "s_bar_qa_report_hash": report_hash,
-        }
+    update_report_metadata(
+        result_dir, root, report_metadata("s_bar_qa", report, report_hash)
     )
-    manifest_hash = atomic_json(manifest_path, manifest)
-    root.attrs.update(
-        {
-            "s_bar_qa_passed": report["passed"],
-            "s_bar_qa_report_version": report["report_version"],
-            "s_bar_qa_report_hash": report_hash,
-            "manifest_hash": manifest_hash,
-        }
-    )
-    atomic_json(result_dir / "COMPLETE", {"manifest_hash": manifest_hash})
     return report
 
 

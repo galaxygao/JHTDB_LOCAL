@@ -89,9 +89,9 @@ def main(argv=None)
 
 调用：`(PROJECT / 'qpower_analysis/config.example.json').read_text`, `(root / 'deploy.log').open`, `(root / 'deploy.pid').write_text`, `Path.home`, `argparse.ArgumentParser`, `args.data_root.expanduser`, `args.data_root.expanduser().resolve`, `child.append`, `environment_python`, `frame.update`, `json.dumps`, `json.loads`, `local_token.is_file`, `os.environ.get`, `os.environ.setdefault`, `parser.add_argument`, `parser.error`, `parser.parse_args`, `pipeline_commands`, `prepare_config`, `print`, `python.is_file`, `root.mkdir`, `run`, `str`, `subprocess.Popen`, `token.expanduser`, `token.expanduser().resolve`, `venv.EnvBuilder`, `venv.EnvBuilder(with_pip=True).create`
 
-## scripts/rebuild_v7.py
+## scripts/rebuild_result.py
 
-[完整源码](../scripts/rebuild_v7.py)
+[完整源码](../scripts/rebuild_result.py)
 
 依赖：
 
@@ -101,14 +101,14 @@ import argparse
 from dataclasses import replace
 import json
 from pathlib import Path
-from jhtdb_pipeline.config import load_config, RESULT_SCHEMA_VERSION
+from jhtdb_pipeline.config import load_config, RESULT_SCHEMA_VERSION, READABLE_RESULT_SCHEMAS
 from jhtdb_pipeline.processing import process_batch, resource_plan
 from jhtdb_pipeline.validation import validate_snapshot
 ```
 
 ### `main`
 
-[实现：第 12 行](../scripts/rebuild_v7.py#L12)
+[实现：第 12 行](../scripts/rebuild_result.py#L12)
 
 ```python
 def main(argv=None)
@@ -541,68 +541,89 @@ def build_parser() -> argparse.ArgumentParser
 
 调用：`_config`, `_frame`, `_sigma`, `argparse.ArgumentParser`, `auth_parser.add_argument`, `command.add_argument`, `commands.add_parser`, `doctor_parser.add_argument`, `gui.add_argument`, `parser.add_subparsers`
 
-### `_status`
+### `_input_status`
 
 [实现：第 116 行](../src/jhtdb_pipeline/cli.py#L116)
+
+```python
+def _input_status(cfg) -> list[dict[str, object]]
+```
+
+调用：`Catalog`, `catalog.snapshots`, `catalog.tile_progress`, `cfg.catalog_path.exists`, `dict`
+
+### `_status`
+
+[实现：第 126 行](../src/jhtdb_pipeline/cli.py#L126)
 
 ```python
 def _status(cfg) -> dict[str, object]
 ```
 
-调用：`(path / 'COMPLETE').is_file`, `Catalog`, `catalog.snapshots`, `catalog.tile_progress`, `cfg.catalog_path.exists`, `cfg.result_root.exists`, `cfg.result_root.glob`, `cfg.result_root.iterdir`, `dict`, `field_config`, `filter_batches.append`, `inputs.append`, `item.update`, `json.loads`, `manifest.get`, `manifest_path.is_file`, `manifest_path.read_text`, `path.is_dir`, `path.name.endswith`, `path.name.startswith`, `path.read_text`, `pressure_cfg.catalog_path.exists`, `pressure_inputs.append`, `results.append`, `sorted`, `str`
+调用：`(path / 'COMPLETE').is_file`, `_input_status`, `cfg.result_root.exists`, `cfg.result_root.glob`, `cfg.result_root.iterdir`, `field_config`, `filter_batches.append`, `item.update`, `json.loads`, `manifest.get`, `manifest_path.is_file`, `manifest_path.read_text`, `path.is_dir`, `path.name.endswith`, `path.name.startswith`, `path.read_text`, `results.append`, `sorted`, `str`
 
 ### `_selected_sigmas`
 
-[实现：第 176 行](../src/jhtdb_pipeline/cli.py#L176)
+[实现：第 175 行](../src/jhtdb_pipeline/cli.py#L175)
 
 ```python
-def _selected_sigmas(cfg, sigma_grid: float | None) -> tuple[float, ...]
+def _selected_sigmas(cfg, sigma_grid: float | None, sigma_grids: list[float] | None=None) -> tuple[float, ...]
 ```
 
-调用：`float`
+Resolve a CLI scale override, preserving configured scale order.
+
+调用：`ValueError`, `float`, `tuple`
+
+显式异常：
+
+```python
+ValueError('use only one of --sigma-grid and --sigma-grids')
+```
 
 ### `_run_single_frame`
 
-[实现：第 180 行](../src/jhtdb_pipeline/cli.py#L180)
+[实现：第 186 行](../src/jhtdb_pipeline/cli.py#L186)
 
 ```python
 def _run_single_frame(cfg, time_index: int, sigma_grid: float | None, sigma_grids: list[float] | None=None) -> list[Path]
 ```
 
-调用：`RuntimeError`, `ValueError`, `_selected_sigmas`, `doctor`, `fetch_snapshot`, `float`, `json.dumps`, `pending.append`, `process_batch`, `reuse_complete_result`, `tuple`, `validate_snapshot`
+调用：`RuntimeError`, `_selected_sigmas`, `doctor`, `fetch_snapshot`, `json.dumps`, `pending.append`, `process_batch`, `reuse_complete_result`, `validate_snapshot`
 
 显式异常：
 
 ```python
 RuntimeError(f"local doctor failed: {json.dumps(report['checks'])}")
-ValueError('use only one of --sigma-grid and --sigma-grids')
 ```
+
+### `_print_json`
+
+[实现：第 212 行](../src/jhtdb_pipeline/cli.py#L212)
+
+```python
+def _print_json(payload) -> None
+```
+
+调用：`json.dumps`, `print`
 
 ### `_print_paths`
 
-[实现：第 212 行](../src/jhtdb_pipeline/cli.py#L212)
+[实现：第 216 行](../src/jhtdb_pipeline/cli.py#L216)
 
 ```python
 def _print_paths(paths: list[Path]) -> None
 ```
 
-调用：`json.dumps`, `len`, `print`, `str`
+调用：`_print_json`, `len`, `print`, `str`
 
 ### `main`
 
-[实现：第 219 行](../src/jhtdb_pipeline/cli.py#L219)
+[实现：第 223 行](../src/jhtdb_pipeline/cli.py#L223)
 
 ```python
 def main(argv: list[str] | None=None) -> int
 ```
 
-调用：`Path`, `Path(__file__).with_name`, `Path(args.config).resolve`, `ValueError`, `_print_paths`, `_run_single_frame`, `_selected_sigmas`, `_status`, `all`, `build_parser`, `build_parser().parse_args`, `cfg.with_filter`, `cfg.with_sharp_edge_width_fraction`, `doctor`, `fetch_snapshot`, `field_config`, `finalize_result`, `float`, `getattr`, `has_token`, `json.dumps`, `len`, `load_config`, `os.environ.copy`, `plan`, `print`, `process_batch`, `process_full`, `reconfigure`, `resource_plan`, `run_cq`, `run_regime_pi_statistics`, `run_sbar_qa`, `run_weak_asymmetry`, `smoke`, `str`, `subprocess.run`, `token_source`, `tuple`, `validate_snapshot`
-
-显式异常：
-
-```python
-ValueError('use only one of --sigma-grid and --sigma-grids')
-```
+调用：`Path`, `Path(__file__).with_name`, `Path(args.config).resolve`, `_print_json`, `_print_paths`, `_run_single_frame`, `_selected_sigmas`, `_status`, `all`, `build_parser`, `build_parser().parse_args`, `cfg.with_filter`, `cfg.with_sharp_edge_width_fraction`, `doctor`, `fetch_snapshot`, `field_config`, `getattr`, `has_token`, `json.dumps`, `len`, `load_config`, `operation`, `os.environ.copy`, `plan`, `print`, `process_batch`, `reconfigure`, `resource_plan`, `smoke`, `str`, `subprocess.run`, `token_source`, `validate_snapshot`
 
 ## src/jhtdb_pipeline/config.py
 
@@ -623,13 +644,26 @@ import yaml
 模块常量/配置：
 
 ```python
-RESULT_SCHEMA_VERSION = 7
+RESULT_SCHEMA_VERSION = 8
+READABLE_RESULT_SCHEMAS = (7, 8)
+SAMPLED_FIELDS = ('gradient', 'velocity_bar', 'gradient_bar')
+VECTOR_STORAGE_STRIDE = 2
 FILTER_TYPES = ('gaussian', 'smooth_sharp')
 ```
 
+### `field_sampling`
+
+[实现：第 18 行](../src/jhtdb_pipeline/config.py#L18)
+
+```python
+def field_sampling(grid_shape: tuple[int, int, int], schema_version: int=RESULT_SCHEMA_VERSION) -> dict[str, dict[str, list[int]]]
+```
+
+Map stored array indices to the original periodic grid, field by field.
+
 ### `_tuple3`
 
-[实现：第 16 行](../src/jhtdb_pipeline/config.py#L16)
+[实现：第 35 行](../src/jhtdb_pipeline/config.py#L35)
 
 ```python
 def _tuple3(value: Any, name: str) -> tuple[int, int, int]
@@ -646,7 +680,7 @@ ValueError(f'{name} values must be positive')
 
 ### `_path`
 
-[实现：第 25 行](../src/jhtdb_pipeline/config.py#L25)
+[实现：第 44 行](../src/jhtdb_pipeline/config.py#L44)
 
 ```python
 def _path(value: Any, name: str) -> Path
@@ -662,7 +696,7 @@ ValueError(f'{name} must be configured')
 
 ### `_mapping`
 
-[实现：第 32 行](../src/jhtdb_pipeline/config.py#L32)
+[实现：第 51 行](../src/jhtdb_pipeline/config.py#L51)
 
 ```python
 def _mapping(value: Any, name: str) -> Mapping[str, Any]
@@ -678,7 +712,7 @@ ValueError(f'{name} must be a mapping')
 
 ### `_reject_unknown`
 
-[实现：第 40 行](../src/jhtdb_pipeline/config.py#L40)
+[实现：第 59 行](../src/jhtdb_pipeline/config.py#L59)
 
 ```python
 def _reject_unknown(mapping: Mapping[str, Any], allowed: set[str], name: str) -> None
@@ -694,7 +728,7 @@ ValueError(f"unknown {name} fields: {', '.join(unknown)}")
 
 ### `sigma_tag`
 
-[实现：第 46 行](../src/jhtdb_pipeline/config.py#L46)
+[实现：第 65 行](../src/jhtdb_pipeline/config.py#L65)
 
 ```python
 def sigma_tag(value: float) -> str
@@ -704,7 +738,7 @@ def sigma_tag(value: float) -> str
 
 ### `result_zarr_name`
 
-[实现：第 50 行](../src/jhtdb_pipeline/config.py#L50)
+[实现：第 69 行](../src/jhtdb_pipeline/config.py#L69)
 
 ```python
 def result_zarr_name(sigma_grid: float) -> str
@@ -714,7 +748,7 @@ def result_zarr_name(sigma_grid: float) -> str
 
 ### `_sigma_values`
 
-[实现：第 54 行](../src/jhtdb_pipeline/config.py#L54)
+[实现：第 73 行](../src/jhtdb_pipeline/config.py#L73)
 
 ```python
 def _sigma_values(value: Any) -> tuple[float, ...]
@@ -733,7 +767,7 @@ ValueError('physics.sigma_grid values must have unique result tags')
 
 ### `PipelineConfig`
 
-[实现：第 69 行](../src/jhtdb_pipeline/config.py#L69)
+[实现：第 88 行](../src/jhtdb_pipeline/config.py#L88)
 
 ```python
 class PipelineConfig()
@@ -779,7 +813,7 @@ fft_cache_mode: str = 'memory'
 
 ### `PipelineConfig.sharp_edge_tag`
 
-[实现：第 105 行](../src/jhtdb_pipeline/config.py#L105)
+[实现：第 124 行](../src/jhtdb_pipeline/config.py#L124)
 
 ```python
 def PipelineConfig.sharp_edge_tag(self) -> str
@@ -789,7 +823,7 @@ def PipelineConfig.sharp_edge_tag(self) -> str
 
 ### `PipelineConfig.catalog_path`
 
-[实现：第 109 行](../src/jhtdb_pipeline/config.py#L109)
+[实现：第 128 行](../src/jhtdb_pipeline/config.py#L128)
 
 ```python
 def PipelineConfig.catalog_path(self) -> Path
@@ -797,7 +831,7 @@ def PipelineConfig.catalog_path(self) -> Path
 
 ### `PipelineConfig.manifest_path`
 
-[实现：第 113 行](../src/jhtdb_pipeline/config.py#L113)
+[实现：第 132 行](../src/jhtdb_pipeline/config.py#L132)
 
 ```python
 def PipelineConfig.manifest_path(self) -> Path
@@ -805,7 +839,7 @@ def PipelineConfig.manifest_path(self) -> Path
 
 ### `PipelineConfig.qa_path`
 
-[实现：第 117 行](../src/jhtdb_pipeline/config.py#L117)
+[实现：第 136 行](../src/jhtdb_pipeline/config.py#L136)
 
 ```python
 def PipelineConfig.qa_path(self) -> Path
@@ -813,7 +847,7 @@ def PipelineConfig.qa_path(self) -> Path
 
 ### `PipelineConfig.lock_path`
 
-[实现：第 121 行](../src/jhtdb_pipeline/config.py#L121)
+[实现：第 140 行](../src/jhtdb_pipeline/config.py#L140)
 
 ```python
 def PipelineConfig.lock_path(self) -> Path
@@ -821,7 +855,7 @@ def PipelineConfig.lock_path(self) -> Path
 
 ### `PipelineConfig.run_path`
 
-[实现：第 124 行](../src/jhtdb_pipeline/config.py#L124)
+[实现：第 143 行](../src/jhtdb_pipeline/config.py#L143)
 
 ```python
 def PipelineConfig.run_path(self, time_index: int) -> Path
@@ -831,7 +865,7 @@ def PipelineConfig.run_path(self, time_index: int) -> Path
 
 ### `PipelineConfig.persistent_input_path`
 
-[实现：第 128 行](../src/jhtdb_pipeline/config.py#L128)
+[实现：第 147 行](../src/jhtdb_pipeline/config.py#L147)
 
 ```python
 def PipelineConfig.persistent_input_path(self, time_index: int) -> Path
@@ -841,7 +875,7 @@ def PipelineConfig.persistent_input_path(self, time_index: int) -> Path
 
 ### `PipelineConfig.persistent_raw_store_path`
 
-[实现：第 132 行](../src/jhtdb_pipeline/config.py#L132)
+[实现：第 151 行](../src/jhtdb_pipeline/config.py#L151)
 
 ```python
 def PipelineConfig.persistent_raw_store_path(self, time_index: int) -> Path
@@ -851,7 +885,7 @@ def PipelineConfig.persistent_raw_store_path(self, time_index: int) -> Path
 
 ### `PipelineConfig.raw_store_path`
 
-[实现：第 135 行](../src/jhtdb_pipeline/config.py#L135)
+[实现：第 154 行](../src/jhtdb_pipeline/config.py#L154)
 
 ```python
 def PipelineConfig.raw_store_path(self, time_index: int) -> Path
@@ -861,7 +895,7 @@ def PipelineConfig.raw_store_path(self, time_index: int) -> Path
 
 ### `PipelineConfig.strain_store_path`
 
-[实现：第 138 行](../src/jhtdb_pipeline/config.py#L138)
+[实现：第 157 行](../src/jhtdb_pipeline/config.py#L157)
 
 ```python
 def PipelineConfig.strain_store_path(self, time_index: int) -> Path
@@ -873,7 +907,7 @@ Per-frame, filter-independent full-domain S_ij S_ij cache.
 
 ### `PipelineConfig.workspace_path`
 
-[实现：第 142 行](../src/jhtdb_pipeline/config.py#L142)
+[实现：第 161 行](../src/jhtdb_pipeline/config.py#L161)
 
 ```python
 def PipelineConfig.workspace_path(self, time_index: int, sigma_grid: float | None=None) -> Path
@@ -883,7 +917,7 @@ def PipelineConfig.workspace_path(self, time_index: int, sigma_grid: float | Non
 
 ### `PipelineConfig.result_id`
 
-[实现：第 151 行](../src/jhtdb_pipeline/config.py#L151)
+[实现：第 170 行](../src/jhtdb_pipeline/config.py#L170)
 
 ```python
 def PipelineConfig.result_id(self, time_index: int, sigma_grid: float | None=None) -> str
@@ -893,7 +927,7 @@ def PipelineConfig.result_id(self, time_index: int, sigma_grid: float | None=Non
 
 ### `PipelineConfig.staging_result_path`
 
-[实现：第 160 行](../src/jhtdb_pipeline/config.py#L160)
+[实现：第 179 行](../src/jhtdb_pipeline/config.py#L179)
 
 ```python
 def PipelineConfig.staging_result_path(self, time_index: int, sigma_grid: float | None=None) -> Path
@@ -903,7 +937,7 @@ def PipelineConfig.staging_result_path(self, time_index: int, sigma_grid: float 
 
 ### `PipelineConfig.result_path`
 
-[实现：第 163 行](../src/jhtdb_pipeline/config.py#L163)
+[实现：第 182 行](../src/jhtdb_pipeline/config.py#L182)
 
 ```python
 def PipelineConfig.result_path(self, time_index: int, sigma_grid: float | None=None) -> Path
@@ -913,7 +947,7 @@ def PipelineConfig.result_path(self, time_index: int, sigma_grid: float | None=N
 
 ### `PipelineConfig.batch_manifest_path`
 
-[实现：第 166 行](../src/jhtdb_pipeline/config.py#L166)
+[实现：第 185 行](../src/jhtdb_pipeline/config.py#L185)
 
 ```python
 def PipelineConfig.batch_manifest_path(self, time_index: int) -> Path
@@ -923,7 +957,7 @@ def PipelineConfig.batch_manifest_path(self, time_index: int) -> Path
 
 ### `PipelineConfig.shared_result_path`
 
-[实现：第 177 行](../src/jhtdb_pipeline/config.py#L177)
+[实现：第 196 行](../src/jhtdb_pipeline/config.py#L196)
 
 ```python
 def PipelineConfig.shared_result_path(self, time_index: int) -> Path
@@ -933,7 +967,7 @@ def PipelineConfig.shared_result_path(self, time_index: int) -> Path
 
 ### `PipelineConfig.shared_staging_result_path`
 
-[实现：第 181 行](../src/jhtdb_pipeline/config.py#L181)
+[实现：第 200 行](../src/jhtdb_pipeline/config.py#L200)
 
 ```python
 def PipelineConfig.shared_staging_result_path(self, time_index: int) -> Path
@@ -943,7 +977,7 @@ def PipelineConfig.shared_staging_result_path(self, time_index: int) -> Path
 
 ### `PipelineConfig.shared_gradient_store_path`
 
-[实现：第 185 行](../src/jhtdb_pipeline/config.py#L185)
+[实现：第 204 行](../src/jhtdb_pipeline/config.py#L204)
 
 ```python
 def PipelineConfig.shared_gradient_store_path(self, time_index: int) -> Path
@@ -951,9 +985,29 @@ def PipelineConfig.shared_gradient_store_path(self, time_index: int) -> Path
 
 调用：`self.shared_result_path`
 
+### `PipelineConfig.field_sampling`
+
+[实现：第 208 行](../src/jhtdb_pipeline/config.py#L208)
+
+```python
+def PipelineConfig.field_sampling(self) -> dict[str, dict[str, list[int]]]
+```
+
+调用：`field_sampling`
+
+### `PipelineConfig.stored_shape_zyx`
+
+[实现：第 211 行](../src/jhtdb_pipeline/config.py#L211)
+
+```python
+def PipelineConfig.stored_shape_zyx(self, field: str) -> tuple[int, int, int]
+```
+
+调用：`reversed`, `tuple`
+
 ### `PipelineConfig.full_shape_zyx`
 
-[实现：第 189 行](../src/jhtdb_pipeline/config.py#L189)
+[实现：第 215 行](../src/jhtdb_pipeline/config.py#L215)
 
 ```python
 def PipelineConfig.full_shape_zyx(self) -> tuple[int, int, int]
@@ -961,7 +1015,7 @@ def PipelineConfig.full_shape_zyx(self) -> tuple[int, int, int]
 
 ### `PipelineConfig.bytes_per_snapshot`
 
-[实现：第 194 行](../src/jhtdb_pipeline/config.py#L194)
+[实现：第 220 行](../src/jhtdb_pipeline/config.py#L220)
 
 ```python
 def PipelineConfig.bytes_per_snapshot(self) -> int
@@ -969,27 +1023,27 @@ def PipelineConfig.bytes_per_snapshot(self) -> int
 
 ### `PipelineConfig.result_uncompressed_bytes`
 
-[实现：第 199 行](../src/jhtdb_pipeline/config.py#L199)
+[实现：第 225 行](../src/jhtdb_pipeline/config.py#L225)
 
 ```python
 def PipelineConfig.result_uncompressed_bytes(self) -> int
 ```
 
-调用：`math.prod`
+调用：`math.prod`, `self.stored_shape_zyx`
 
 ### `PipelineConfig.shared_gradient_uncompressed_bytes`
 
-[实现：第 205 行](../src/jhtdb_pipeline/config.py#L205)
+[实现：第 231 行](../src/jhtdb_pipeline/config.py#L231)
 
 ```python
 def PipelineConfig.shared_gradient_uncompressed_bytes(self) -> int
 ```
 
-调用：`math.prod`
+调用：`math.prod`, `self.stored_shape_zyx`
 
 ### `PipelineConfig.physical_time`
 
-[实现：第 208 行](../src/jhtdb_pipeline/config.py#L208)
+[实现：第 234 行](../src/jhtdb_pipeline/config.py#L234)
 
 ```python
 def PipelineConfig.physical_time(self, time_index: int) -> float
@@ -1005,7 +1059,7 @@ ValueError('JHTDB cutout time_index must be >= 1')
 
 ### `PipelineConfig.with_sigma`
 
-[实现：第 213 行](../src/jhtdb_pipeline/config.py#L213)
+[实现：第 239 行](../src/jhtdb_pipeline/config.py#L239)
 
 ```python
 def PipelineConfig.with_sigma(self, sigma_grid: float) -> 'PipelineConfig'
@@ -1021,7 +1075,7 @@ ValueError('sigma_grid must be positive')
 
 ### `PipelineConfig.with_filter`
 
-[实现：第 221 行](../src/jhtdb_pipeline/config.py#L221)
+[实现：第 247 行](../src/jhtdb_pipeline/config.py#L247)
 
 ```python
 def PipelineConfig.with_filter(self, filter_type: str) -> 'PipelineConfig'
@@ -1037,7 +1091,7 @@ ValueError(f"filter_type must be one of: {', '.join(FILTER_TYPES)}")
 
 ### `PipelineConfig.with_sharp_edge_width_fraction`
 
-[实现：第 229 行](../src/jhtdb_pipeline/config.py#L229)
+[实现：第 255 行](../src/jhtdb_pipeline/config.py#L255)
 
 ```python
 def PipelineConfig.with_sharp_edge_width_fraction(self, fraction: float) -> 'PipelineConfig'
@@ -1053,7 +1107,7 @@ ValueError('sharp edge width fraction must be finite and positive')
 
 ### `PipelineConfig.validate`
 
-[实现：第 237 行](../src/jhtdb_pipeline/config.py#L237)
+[实现：第 263 行](../src/jhtdb_pipeline/config.py#L263)
 
 ```python
 def PipelineConfig.validate(self) -> None
@@ -1087,7 +1141,7 @@ ValueError(f"filter_type must be one of: {', '.join(FILTER_TYPES)}")
 
 ### `load_config`
 
-[实现：第 296 行](../src/jhtdb_pipeline/config.py#L296)
+[实现：第 322 行](../src/jhtdb_pipeline/config.py#L322)
 
 ```python
 def load_config(path: str | Path) -> PipelineConfig
@@ -1109,7 +1163,6 @@ ValueError('configuration root must be a mapping')
 
 ```python
 from __future__ import annotations
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -1120,10 +1173,11 @@ import zarr
 from filelock import FileLock
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from .physics import sign_regime_masks
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
-from .store import spatial_slices
-from .validation import atomic_json
-from .weak_asymmetry import AbsPiPercentileAccumulator, build_weak_asymmetry_report, ensure_weak_asymmetry_result, write_weak_asymmetry_artifacts
+from .store import chunk_count, load_chained_report, report_metadata, report_summary, spatial_slices
+from .validation import atomic_json, update_report_metadata
+from .weak_asymmetry import AbsPiPercentileAccumulator, build_weak_asymmetry_report, ensure_weak_asymmetry_result, weak_asymmetry_summary, write_weak_asymmetry_artifacts
 ```
 
 模块常量/配置：
@@ -1136,25 +1190,15 @@ LEGACY_REGIME_KEYS = ('Q1', 'Q2', 'Q3', 'Q4')
 REGIME_FIELD_SPECS = (('pi', 'mean Π', '#1f77b4'), ('s_bar', 'mean S̄', '#ff7f0e'), ('work_full', 'mean W_full', '#2ca02c'), ('work_resolved', 'mean W_res', '#d62728'), ('delta_w', 'mean ΔW', '#9467bd'))
 ```
 
-### `_chunk_count`
-
-[实现：第 40 行](../src/jhtdb_pipeline/cq.py#L40)
-
-```python
-def _chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int
-```
-
-调用：`int`, `np.prod`, `zip`
-
 ### `compute_cq`
 
-[实现：第 49 行](../src/jhtdb_pipeline/cq.py#L49)
+[实现：第 43 行](../src/jhtdb_pipeline/cq.py#L43)
 
 ```python
 def compute_cq(root: Any, cfg: PipelineConfig, *, scope: str='full_domain') -> dict[str, Any]
 ```
 
-调用：`(full - resolved).astype`, `AbsPiPercentileAccumulator`, `BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_chunk_count`, `abs`, `absolute_values.sum`, `all`, `any`, `bool`, `build_weak_asymmetry_report`, `counts.sum`, `enumerate`, `field.sum`, `field[mask].sum`, `field_partition_checks.values`, `field_sums[field_index].sum`, `float`, `full.astype`, `int`, `len`, `list`, `np.abs`, `np.abs(field).sum`, `np.all`, `np.any`, `np.asarray`, `np.count_nonzero`, `np.dtype`, `np.isfinite`, `np.prod`, `np.square`, `np.square(values64).sum`, `np.zeros`, `progress.add_task`, `progress.advance`, `resolved.astype`, `spatial_slices`, `stored_sums.sum`, `sum`, `tail.add`, `tail.result`, `transport.astype`, `tuple`, `values.astype`, `values64.sum`, `values64[negative].sum`, `values64[positive].sum`, `zip`
+调用：`(full - resolved).astype`, `AbsPiPercentileAccumulator`, `BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `abs`, `absolute_values.sum`, `all`, `any`, `bool`, `build_weak_asymmetry_report`, `chunk_count`, `counts.sum`, `enumerate`, `field.sum`, `field[mask].sum`, `field_partition_checks.values`, `field_sums[field_index].sum`, `float`, `full.astype`, `int`, `len`, `list`, `np.abs`, `np.abs(field).sum`, `np.all`, `np.any`, `np.asarray`, `np.count_nonzero`, `np.dtype`, `np.isfinite`, `np.prod`, `np.square`, `np.square(values64).sum`, `np.zeros`, `progress.add_task`, `progress.advance`, `resolved.astype`, `sign_regime_masks`, `spatial_slices`, `stored_sums.sum`, `sum`, `tail.add`, `tail.result`, `transport.astype`, `tuple`, `values.astype`, `values64.sum`, `values64[negative].sum`, `values64[positive].sum`, `zip`
 
 显式异常：
 
@@ -1168,7 +1212,7 @@ ValueError('pi or work fields contain NaN or Inf')
 
 ### `write_cq_artifacts`
 
-[实现：第 343 行](../src/jhtdb_pipeline/cq.py#L343)
+[实现：第 325 行](../src/jhtdb_pipeline/cq.py#L325)
 
 ```python
 def write_cq_artifacts(result_dir: Path, report: dict[str, Any]) -> str
@@ -1176,35 +1220,25 @@ def write_cq_artifacts(result_dir: Path, report: dict[str, Any]) -> str
 
 调用：`atomic_json`, `figure.add_bar`, `figure.update_layout`, `figure.write_html`, `go.Figure`, `list`, `os.replace`, `output.with_suffix`, `str`
 
-### `_report_hash`
-
-[实现：第 390 行](../src/jhtdb_pipeline/cq.py#L390)
-
-```python
-def _report_hash(path: Path) -> str
-```
-
-调用：`hashlib.sha256`, `hashlib.sha256(path.read_bytes()).hexdigest`, `path.read_bytes`
-
 ### `cq_report_is_current`
 
-[实现：第 394 行](../src/jhtdb_pipeline/cq.py#L394)
+[实现：第 372 行](../src/jhtdb_pipeline/cq.py#L372)
 
 ```python
 def cq_report_is_current(result_dir: Path, root: Any) -> bool
 ```
 
-调用：`(result_dir / 'cq.html').is_file`, `_report_hash`, `complete.get`, `complete_path.is_file`, `complete_path.read_text`, `json.loads`, `manifest.get`, `manifest_path.is_file`, `manifest_path.read_text`, `path.is_file`, `path.read_text`, `report.get`, `root.attrs.get`
+调用：`load_chained_report`
 
 ### `run_cq`
 
-[实现：第 425 行](../src/jhtdb_pipeline/cq.py#L425)
+[实现：第 376 行](../src/jhtdb_pipeline/cq.py#L376)
 
 ```python
 def run_cq(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> dict[str, Any]
 ```
 
-调用：`(result_dir / 'COMPLETE').is_file`, `FileLock`, `RuntimeError`, `atomic_json`, `cfg.lock_path.mkdir`, `cfg.result_id`, `cfg.result_path`, `compute_cq`, `float`, `json.loads`, `manifest.update`, `manifest_path.read_text`, `qa_path.read_text`, `result_zarr_name`, `root.attrs.get`, `root.attrs.update`, `str`, `write_cq_artifacts`, `write_weak_asymmetry_artifacts`, `zarr.open_group`
+调用：`(result_dir / 'COMPLETE').is_file`, `FileLock`, `RuntimeError`, `atomic_json`, `cfg.lock_path.mkdir`, `cfg.result_id`, `cfg.result_path`, `compute_cq`, `float`, `json.loads`, `qa_path.read_text`, `report_metadata`, `report_summary`, `result_zarr_name`, `root.attrs.get`, `str`, `update_report_metadata`, `weak_asymmetry_summary`, `write_cq_artifacts`, `write_weak_asymmetry_artifacts`, `zarr.open_group`
 
 显式异常：
 
@@ -1215,7 +1249,7 @@ RuntimeError('current full-domain result schema is required')
 
 ### `ensure_cq_result`
 
-[实现：第 498 行](../src/jhtdb_pipeline/cq.py#L498)
+[实现：第 418 行](../src/jhtdb_pipeline/cq.py#L418)
 
 ```python
 def ensure_cq_result(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> Path
@@ -1239,13 +1273,14 @@ RuntimeError('complete result is missing')
 from __future__ import annotations
 import json
 import os
+import sys
 from pathlib import Path
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-from jhtdb_pipeline.config import RESULT_SCHEMA_VERSION, load_config
+from jhtdb_pipeline.config import READABLE_RESULT_SCHEMAS, load_config
 from jhtdb_pipeline.cq import CQ_REPORT_VERSION, REGIME_FIELD_SPECS
 from jhtdb_pipeline.regime_pi import DEFAULT_REGIME_PI_OUTPUT_ROOT, regime_pi_output_dir, regime_pi_report_is_current
 from jhtdb_pipeline.store import open_complete_result
@@ -1267,7 +1302,7 @@ REGIME_PI_OUTPUT_ROOT = PROJECT_ROOT / DEFAULT_REGIME_PI_OUTPUT_ROOT
 
 ### `complete_result_paths`
 
-[实现：第 52 行](../src/jhtdb_pipeline/dashboard.py#L52)
+[实现：第 58 行](../src/jhtdb_pipeline/dashboard.py#L58)
 
 ```python
 def complete_result_paths(result_root: Path) -> list[Path]
@@ -1275,57 +1310,55 @@ def complete_result_paths(result_root: Path) -> list[Path]
 
 调用：`(path / 'COMPLETE').is_file`, `path.is_dir`, `path.name.endswith`, `path.name.startswith`, `result_root.is_dir`, `result_root.iterdir`, `sorted`
 
+### `_extract_spatial_slice`
+
+[实现：第 73 行](../src/jhtdb_pipeline/dashboard.py#L73)
+
+```python
+def _extract_spatial_slice(array, axis: str, index: int, prefix=()) -> np.ndarray
+```
+
+调用：`ValueError`, `axes.index`, `np.asarray`, `slice`, `tuple`
+
+显式异常：
+
+```python
+ValueError(f'unknown axis {axis}')
+```
+
 ### `extract_slice`
 
-[实现：第 67 行](../src/jhtdb_pipeline/dashboard.py#L67)
+[实现：第 82 行](../src/jhtdb_pipeline/dashboard.py#L82)
 
 ```python
 def extract_slice(array, component: int, axis: str, index: int) -> np.ndarray
 ```
 
-调用：`ValueError`, `np.asarray`
-
-显式异常：
-
-```python
-ValueError(f'unknown axis {axis}')
-```
+调用：`_extract_spatial_slice`
 
 ### `extract_scalar_slice`
 
-[实现：第 77 行](../src/jhtdb_pipeline/dashboard.py#L77)
+[实现：第 86 行](../src/jhtdb_pipeline/dashboard.py#L86)
 
 ```python
 def extract_scalar_slice(array, axis: str, index: int) -> np.ndarray
 ```
 
-调用：`ValueError`, `np.asarray`
-
-显式异常：
-
-```python
-ValueError(f'unknown axis {axis}')
-```
+调用：`_extract_spatial_slice`
 
 ### `extract_gradient_slice`
 
-[实现：第 87 行](../src/jhtdb_pipeline/dashboard.py#L87)
+[实现：第 90 行](../src/jhtdb_pipeline/dashboard.py#L90)
 
 ```python
 def extract_gradient_slice(array, velocity_component: int, derivative_component: int, axis: str, index: int) -> np.ndarray
 ```
 
-调用：`ValueError`, `np.asarray`
-
-显式异常：
-
-```python
-ValueError(f'unknown axis {axis}')
-```
+调用：`_extract_spatial_slice`
 
 ### `spatial_axis_length`
 
-[实现：第 99 行](../src/jhtdb_pipeline/dashboard.py#L99)
+[实现：第 96 行](../src/jhtdb_pipeline/dashboard.py#L96)
 
 ```python
 def spatial_axis_length(array, axis: str) -> int
@@ -1333,9 +1366,27 @@ def spatial_axis_length(array, axis: str) -> int
 
 调用：`int`
 
+### `comparison_slices`
+
+[实现：第 100 行](../src/jhtdb_pipeline/dashboard.py#L100)
+
+```python
+def comparison_slices(result, field, axis, index, component, derivative=None)
+```
+
+Read raw and filtered values at the same original-grid coordinates.
+
+调用：`('z', 'y', 'x').index`, `ValueError`, `_extract_spatial_slice`, `np.asarray`, `result.attrs.get`, `sampling.get`, `sampling.get(field, {}).get`, `sampling.get(raw_field, {}).get`, `slice`, `tuple`
+
+显式异常：
+
+```python
+ValueError('comparison plane must lie on the stored sampling lattice')
+```
+
 ### `_global_totals_figure`
 
-[实现：第 103 行](../src/jhtdb_pipeline/dashboard.py#L103)
+[实现：第 116 行](../src/jhtdb_pipeline/dashboard.py#L116)
 
 ```python
 def _global_totals_figure(report: dict)
@@ -1345,7 +1396,7 @@ def _global_totals_figure(report: dict)
 
 ### `_scientific_text`
 
-[实现：第 115 行](../src/jhtdb_pipeline/dashboard.py#L115)
+[实现：第 128 行](../src/jhtdb_pipeline/dashboard.py#L128)
 
 ```python
 def _scientific_text(value) -> str
@@ -1355,7 +1406,7 @@ def _scientific_text(value) -> str
 
 ### `sbar_metric_rows`
 
-[实现：第 121 行](../src/jhtdb_pipeline/dashboard.py#L121)
+[实现：第 134 行](../src/jhtdb_pipeline/dashboard.py#L134)
 
 ```python
 def sbar_metric_rows(report: dict) -> list[dict[str, str]]
@@ -1365,7 +1416,7 @@ def sbar_metric_rows(report: dict) -> list[dict[str, str]]
 
 ### `energy_identity_residual`
 
-[实现：第 147 行](../src/jhtdb_pipeline/dashboard.py#L147)
+[实现：第 160 行](../src/jhtdb_pipeline/dashboard.py#L160)
 
 ```python
 def energy_identity_residual(work_full: np.ndarray, work_resolved: np.ndarray, pi: np.ndarray, s_bar: np.ndarray) -> np.ndarray
@@ -1373,7 +1424,7 @@ def energy_identity_residual(work_full: np.ndarray, work_resolved: np.ndarray, p
 
 ### `_cq_figure`
 
-[实现：第 156 行](../src/jhtdb_pipeline/dashboard.py#L156)
+[实现：第 169 行](../src/jhtdb_pipeline/dashboard.py#L169)
 
 ```python
 def _cq_figure(report: dict)
@@ -1383,7 +1434,7 @@ def _cq_figure(report: dict)
 
 ### `result_selection_metadata`
 
-[实现：第 198 行](../src/jhtdb_pipeline/dashboard.py#L198)
+[实现：第 211 行](../src/jhtdb_pipeline/dashboard.py#L211)
 
 ```python
 def result_selection_metadata(path: Path) -> dict | None
@@ -1395,7 +1446,7 @@ Read only the small manifest needed to populate result selectors.
 
 ### `result_selection_catalog`
 
-[实现：第 237 行](../src/jhtdb_pipeline/dashboard.py#L237)
+[实现：第 250 行](../src/jhtdb_pipeline/dashboard.py#L250)
 
 ```python
 def result_selection_catalog(paths: list[Path]) -> list[dict]
@@ -1405,7 +1456,7 @@ def result_selection_catalog(paths: list[Path]) -> list[dict]
 
 ### `_time_selection_label`
 
-[实现：第 245 行](../src/jhtdb_pipeline/dashboard.py#L245)
+[实现：第 258 行](../src/jhtdb_pipeline/dashboard.py#L258)
 
 ```python
 def _time_selection_label(time_index: int, catalog: list[dict]) -> str
@@ -1415,7 +1466,7 @@ def _time_selection_label(time_index: int, catalog: list[dict]) -> str
 
 ### `cq_rows`
 
-[实现：第 256 行](../src/jhtdb_pipeline/dashboard.py#L256)
+[实现：第 269 行](../src/jhtdb_pipeline/dashboard.py#L269)
 
 ```python
 def cq_rows(report: dict, field_name: str='pi') -> list[dict[str, str]]
@@ -1431,7 +1482,7 @@ ValueError(f'unknown regime field {field_name!r}')
 
 ### `_weak_asymmetry_figure`
 
-[实现：第 278 行](../src/jhtdb_pipeline/dashboard.py#L278)
+[实现：第 291 行](../src/jhtdb_pipeline/dashboard.py#L291)
 
 ```python
 def _weak_asymmetry_figure(report: dict)
@@ -1441,7 +1492,7 @@ def _weak_asymmetry_figure(report: dict)
 
 ### `weak_asymmetry_rows`
 
-[实现：第 294 行](../src/jhtdb_pipeline/dashboard.py#L294)
+[实现：第 307 行](../src/jhtdb_pipeline/dashboard.py#L307)
 
 ```python
 def weak_asymmetry_rows(report: dict) -> list[dict[str, str]]
@@ -1451,7 +1502,7 @@ def weak_asymmetry_rows(report: dict) -> list[dict[str, str]]
 
 ### `_symmetric_color_limit`
 
-[实现：第 320 行](../src/jhtdb_pipeline/dashboard.py#L320)
+[实现：第 333 行](../src/jhtdb_pipeline/dashboard.py#L333)
 
 ```python
 def _symmetric_color_limit(values: np.ndarray, percentile: float=100.0) -> float
@@ -1467,7 +1518,7 @@ ValueError('percentile must be in (0, 100]')
 
 ### `_symlog_transform`
 
-[实现：第 332 行](../src/jhtdb_pipeline/dashboard.py#L332)
+[实现：第 345 行](../src/jhtdb_pipeline/dashboard.py#L345)
 
 ```python
 def _symlog_transform(values: np.ndarray, linear_threshold: float) -> np.ndarray
@@ -1483,13 +1534,13 @@ ValueError('linear_threshold must be positive')
 
 ### `_continuous_figure`
 
-[实现：第 339 行](../src/jhtdb_pipeline/dashboard.py#L339)
+[实现：第 352 行](../src/jhtdb_pipeline/dashboard.py#L352)
 
 ```python
-def _continuous_figure(values: np.ndarray, title: str, *, signed: bool=True, color_percentile: float=100.0, scale_mode: str='linear', color_limit: float | None=None)
+def _continuous_figure(values: np.ndarray, title: str, *, signed: bool=True, color_percentile: float=100.0, scale_mode: str='linear', color_limit: float | None=None, storage_stride: int=1, original_shape: tuple[int, int] | None=None)
 ```
 
-调用：`ValueError`, `_symlog_transform`, `_symmetric_color_limit`, `figure.update_coloraxes`, `figure.update_layout`, `figure.update_traces`, `figure.update_xaxes`, `figure.update_yaxes`, `float`, `int`, `max`, `np.arange`, `np.asarray`, `np.ceil`, `np.isfinite`, `px.imshow`, `transformed_ticks.tolist`
+调用：`ValueError`, `_symlog_transform`, `_symmetric_color_limit`, `figure.update_coloraxes`, `figure.update_layout`, `figure.update_traces`, `figure.update_xaxes`, `figure.update_yaxes`, `float`, `int`, `max`, `np.arange`, `np.asarray`, `np.ceil`, `np.isfinite`, `px.imshow`, `transformed_ticks.tolist`, `tuple`
 
 显式异常：
 
@@ -1501,7 +1552,7 @@ ValueError('symlog color scaling requires signed=True')
 
 ### `_regime_figure`
 
-[实现：第 414 行](../src/jhtdb_pipeline/dashboard.py#L414)
+[实现：第 430 行](../src/jhtdb_pipeline/dashboard.py#L430)
 
 ```python
 def _regime_figure(values: np.ndarray, title: str)
@@ -1511,7 +1562,7 @@ def _regime_figure(values: np.ndarray, title: str)
 
 ### `regime_pi_rows`
 
-[实现：第 431 行](../src/jhtdb_pipeline/dashboard.py#L431)
+[实现：第 447 行](../src/jhtdb_pipeline/dashboard.py#L447)
 
 ```python
 def regime_pi_rows(report: dict) -> list[dict[str, str]]
@@ -1521,7 +1572,7 @@ def regime_pi_rows(report: dict) -> list[dict[str, str]]
 
 ### `_regime_pi_figure`
 
-[实现：第 451 行](../src/jhtdb_pipeline/dashboard.py#L451)
+[实现：第 467 行](../src/jhtdb_pipeline/dashboard.py#L467)
 
 ```python
 def _regime_pi_figure(report: dict)
@@ -1529,15 +1580,27 @@ def _regime_pi_figure(report: dict)
 
 调用：`enumerate`, `figure.add_bar`, `figure.update_layout`, `figure.update_xaxes`, `figure.update_yaxes`, `list`, `make_subplots`, `np.asarray`, `report.get`
 
+### `_continuous_pair`
+
+[实现：第 525 行](../src/jhtdb_pipeline/dashboard.py#L525)
+
+```python
+def _continuous_pair(fields, titles, **options) -> None
+```
+
+Display two fields in the original two-column order with common options.
+
+调用：`_continuous_figure`, `column.plotly_chart`, `st.columns`, `zip`
+
 ### `main`
 
-[实现：第 509 行](../src/jhtdb_pipeline/dashboard.py#L509)
+[实现：第 531 行](../src/jhtdb_pipeline/dashboard.py#L531)
 
 ```python
 def main() -> None
 ```
 
-调用：`_continuous_figure`, `_cq_figure`, `_global_totals_figure`, `_regime_figure`, `_regime_pi_figure`, `_scientific_text`, `_symmetric_color_limit`, `_time_selection_label`, `_weak_asymmetry_figure`, `column.caption`, `column.metric`, `complete_result_paths`, `cq_path.is_file`, `cq_path.read_text`, `cq_rows`, `dict`, `energy_identity_residual`, `extract_gradient_slice`, `extract_scalar_slice`, `extract_slice`, `float`, `global_values.get`, `json.loads`, `left.metric`, `left.plotly_chart`, `len`, `load_config`, `max_column.metric`, `metric.get`, `middle.metric`, `np.stack`, `open_complete_result`, `os.environ.get`, `p99_column.metric`, `path.is_file`, `path.read_text`, `regime_pi_output_dir`, `regime_pi_path.is_file`, `regime_pi_path.read_text`, `regime_pi_report.get`, `regime_pi_report_is_current`, `regime_pi_rows`, `report.get`, `report.get('metrics', {}).get`, `report_path.is_file`, `report_path.read_text`, `result.attrs.get`, `result_selection_catalog`, `right.metric`, `right.plotly_chart`, `s_bar_qa.is_file`, `s_bar_qa.read_text`, `sbar_metric_rows`, `selected.resolve`, `sorted`, `spatial_axis_length`, `st.caption`, `st.code`, `st.columns`, `st.dataframe`, `st.divider`, `st.error`, `st.expander`, `st.header`, `st.info`, `st.json`, `st.plotly_chart`, `st.session_state.get`, `st.session_state.pop`, `st.set_page_config`, `st.sidebar.button`, `st.sidebar.radio`, `st.sidebar.selectbox`, `st.sidebar.slider`, `st.spinner`, `st.subheader`, `st.success`, `st.title`, `st.warning`, `str`, `weak_asymmetry_rows`, `zip`
+调用：`_continuous_figure`, `_continuous_pair`, `_cq_figure`, `_global_totals_figure`, `_regime_figure`, `_regime_pi_figure`, `_scientific_text`, `_symmetric_color_limit`, `_time_selection_label`, `_weak_asymmetry_figure`, `column.caption`, `column.metric`, `comparison_slices`, `complete_result_paths`, `cq_path.is_file`, `cq_path.read_text`, `cq_rows`, `dict`, `energy_identity_residual`, `extract_scalar_slice`, `float`, `global_values.get`, `json.loads`, `left.metric`, `len`, `load_config`, `max_column.metric`, `metric.get`, `middle.metric`, `np.stack`, `open_complete_result`, `os.environ.get`, `p99_column.metric`, `path.is_file`, `path.read_text`, `regime_pi_output_dir`, `regime_pi_path.is_file`, `regime_pi_path.read_text`, `regime_pi_report.get`, `regime_pi_report_is_current`, `regime_pi_rows`, `report.get`, `report.get('metrics', {}).get`, `report_path.is_file`, `report_path.read_text`, `result.attrs.get`, `result.attrs.get('field_sampling', {}).get`, `result.attrs.get('field_sampling', {}).get(field_name, {}).get`, `result_selection_catalog`, `reversed`, `right.metric`, `s_bar_qa.is_file`, `s_bar_qa.read_text`, `sbar_metric_rows`, `selected.resolve`, `sorted`, `spatial_axis_length`, `st.caption`, `st.code`, `st.columns`, `st.dataframe`, `st.divider`, `st.error`, `st.expander`, `st.header`, `st.info`, `st.json`, `st.plotly_chart`, `st.session_state.get`, `st.session_state.pop`, `st.set_page_config`, `st.sidebar.button`, `st.sidebar.radio`, `st.sidebar.selectbox`, `st.sidebar.slider`, `st.spinner`, `st.subheader`, `st.success`, `st.title`, `st.warning`, `str`, `tuple`, `weak_asymmetry_rows`, `zip`
 
 ## src/jhtdb_pipeline/disk_fft.py
 
@@ -2022,9 +2085,19 @@ ValueError('sigma_grid must be positive')
 ValueError('workers must be positive')
 ```
 
-### `regime_codes`
+### `sign_regime_masks`
 
 [实现：第 47 行](../src/jhtdb_pipeline/physics.py#L47)
+
+```python
+def sign_regime_masks(full: np.ndarray, resolved: np.ndarray) -> tuple[np.ndarray, ...]
+```
+
+Six Cq regions; exact zero is nonnegative, with no uncertain band.
+
+### `regime_codes`
+
+[实现：第 64 行](../src/jhtdb_pipeline/physics.py#L64)
 
 ```python
 def regime_codes(work_full: np.ndarray, work_resolved: np.ndarray, epsilon_abs: float, epsilon_rel: float) -> tuple[np.ndarray, float, float]
@@ -2034,13 +2107,13 @@ def regime_codes(work_full: np.ndarray, work_resolved: np.ndarray, epsilon_abs: 
 
 ### `regime_codes_from_thresholds`
 
-[实现：第 65 行](../src/jhtdb_pipeline/physics.py#L65)
+[实现：第 82 行](../src/jhtdb_pipeline/physics.py#L82)
 
 ```python
 def regime_codes_from_thresholds(work_full: np.ndarray, work_resolved: np.ndarray, epsilon_full: float, epsilon_resolved: float) -> np.ndarray
 ```
 
-Return v6 codes: uncertain, 1+, 1-, 2, 3, 4+, 4-.
+Return regime codes: uncertain, 1+, 1-, 2, 3, 4+, 4-.
 
 调用：`ValueError`, `np.asarray`, `np.zeros`
 
@@ -2052,7 +2125,7 @@ ValueError('work fields must have identical shapes')
 
 ### `ComponentView`
 
-[实现：第 92 行](../src/jhtdb_pipeline/physics.py#L92)
+[实现：第 109 行](../src/jhtdb_pipeline/physics.py#L109)
 
 ```python
 class ComponentView()
@@ -2060,7 +2133,7 @@ class ComponentView()
 
 ### `ComponentView.__init__`
 
-[实现：第 93 行](../src/jhtdb_pipeline/physics.py#L93)
+[实现：第 110 行](../src/jhtdb_pipeline/physics.py#L110)
 
 ```python
 def ComponentView.__init__(self, parent: Any, component: int)
@@ -2070,7 +2143,7 @@ def ComponentView.__init__(self, parent: Any, component: int)
 
 ### `ComponentView.__getitem__`
 
-[实现：第 98 行](../src/jhtdb_pipeline/physics.py#L98)
+[实现：第 115 行](../src/jhtdb_pipeline/physics.py#L115)
 
 ```python
 def ComponentView.__getitem__(self, key: Any) -> np.ndarray
@@ -2080,7 +2153,7 @@ def ComponentView.__getitem__(self, key: Any) -> np.ndarray
 
 ### `ComponentView.__setitem__`
 
-[实现：第 103 行](../src/jhtdb_pipeline/physics.py#L103)
+[实现：第 120 行](../src/jhtdb_pipeline/physics.py#L120)
 
 ```python
 def ComponentView.__setitem__(self, key: Any, value: np.ndarray) -> None
@@ -2090,7 +2163,7 @@ def ComponentView.__setitem__(self, key: Any, value: np.ndarray) -> None
 
 ### `ProductView`
 
-[实现：第 109 行](../src/jhtdb_pipeline/physics.py#L109)
+[实现：第 126 行](../src/jhtdb_pipeline/physics.py#L126)
 
 ```python
 class ProductView()
@@ -2100,7 +2173,7 @@ Read-only slab view of the pointwise product of two full-domain fields.
 
 ### `ProductView.__init__`
 
-[实现：第 112 行](../src/jhtdb_pipeline/physics.py#L112)
+[实现：第 129 行](../src/jhtdb_pipeline/physics.py#L129)
 
 ```python
 def ProductView.__init__(self, left: Any, right: Any)
@@ -2116,7 +2189,7 @@ ValueError('product fields must have identical shapes')
 
 ### `ProductView.__getitem__`
 
-[实现：第 119 行](../src/jhtdb_pipeline/physics.py#L119)
+[实现：第 136 行](../src/jhtdb_pipeline/physics.py#L136)
 
 ```python
 def ProductView.__getitem__(self, key: Any) -> np.ndarray
@@ -2124,15 +2197,27 @@ def ProductView.__getitem__(self, key: Any) -> np.ndarray
 
 调用：`np.asarray`
 
+### `spatial_slabs`
+
+[实现：第 142 行](../src/jhtdb_pipeline/physics.py#L142)
+
+```python
+def spatial_slabs(shape: tuple[int, int, int], slab: int) -> Iterator[tuple[slice, slice, slice]]
+```
+
+Iterate z slabs in a z/y/x field, including any partial final slab.
+
+调用：`min`, `range`, `slice`
+
 ### `axis_batches`
 
-[实现：第 125 行](../src/jhtdb_pipeline/physics.py#L125)
+[实现：第 150 行](../src/jhtdb_pipeline/physics.py#L150)
 
 ```python
 def axis_batches(shape: tuple[int, int, int], axis: int, slab: int) -> Iterator[tuple[slice, slice, slice]]
 ```
 
-调用：`ValueError`, `min`, `range`, `slice`
+调用：`ValueError`, `min`, `range`, `slice`, `spatial_slabs`
 
 显式异常：
 
@@ -2142,7 +2227,7 @@ ValueError(f'invalid 3-D axis {axis}')
 
 ### `transform_axis`
 
-[实现：第 138 行](../src/jhtdb_pipeline/physics.py#L138)
+[实现：第 162 行](../src/jhtdb_pipeline/physics.py#L162)
 
 ```python
 def transform_axis(source: Any, destination: Any, axis: int, slab: int, *, workers: int=1, derivative_domain_length: float | None=None, gaussian_sigma_grid: float | None=None) -> None
@@ -2159,7 +2244,7 @@ ValueError('select exactly one spectral operation')
 
 ### `axis2_spectrum`
 
-[实现：第 176 行](../src/jhtdb_pipeline/physics.py#L176)
+[实现：第 200 行](../src/jhtdb_pipeline/physics.py#L200)
 
 ```python
 def axis2_spectrum(source: Any, slab: int, *, workers: int=1) -> np.ndarray
@@ -2177,7 +2262,7 @@ ValueError('axis2_spectrum requires a three-dimensional field')
 
 ### `full_spectrum`
 
-[实现：第 195 行](../src/jhtdb_pipeline/physics.py#L195)
+[实现：第 219 行](../src/jhtdb_pipeline/physics.py#L219)
 
 ```python
 def full_spectrum(source: Any, slab: int, *, workers: int=1) -> np.ndarray
@@ -2189,7 +2274,7 @@ Return the complete 3-D rFFT spectrum without spatial subsampling.
 
 ### `smooth_sharp_radial_weights`
 
-[实现：第 208 行](../src/jhtdb_pipeline/physics.py#L208)
+[实现：第 232 行](../src/jhtdb_pipeline/physics.py#L232)
 
 ```python
 def smooth_sharp_radial_weights(radial_wavenumber: np.ndarray, cutoff_wavenumber: float, edge_width_wavenumber: float) -> np.ndarray
@@ -2209,7 +2294,7 @@ ValueError('radial_wavenumber must be finite and nonnegative')
 
 ### `filter_smooth_sharp_from_spectrum`
 
-[实现：第 229 行](../src/jhtdb_pipeline/physics.py#L229)
+[实现：第 253 行](../src/jhtdb_pipeline/physics.py#L253)
 
 ```python
 def filter_smooth_sharp_from_spectrum(spectrum: np.ndarray, destination: Any, sigma_grid: float, domain_length: float, edge_width_fraction: float, slab: int, *, workers: int=1) -> None
@@ -2229,7 +2314,7 @@ ValueError('smooth sharp filtering currently requires a cubic grid')
 
 ### `filter_smooth_sharp_field`
 
-[实现：第 278 行](../src/jhtdb_pipeline/physics.py#L278)
+[实现：第 302 行](../src/jhtdb_pipeline/physics.py#L302)
 
 ```python
 def filter_smooth_sharp_field(source: Any, destination: Any, sigma_grid: float, domain_length: float, edge_width_fraction: float, slab: int, *, workers: int=1) -> None
@@ -2241,7 +2326,7 @@ Compute and filter a complete periodic 3-D field without downsampling.
 
 ### `filter_field_from_axis2_spectrum`
 
-[实现：第 301 行](../src/jhtdb_pipeline/physics.py#L301)
+[实现：第 325 行](../src/jhtdb_pipeline/physics.py#L325)
 
 ```python
 def filter_field_from_axis2_spectrum(spectrum: np.ndarray, destination: Any, temp_a: Any, temp_b: Any, sigma_grid: float, slab: int, *, workers: int=1) -> None
@@ -2260,7 +2345,7 @@ ValueError('sigma_grid must be positive')
 
 ### `derivative_field`
 
-[实现：第 341 行](../src/jhtdb_pipeline/physics.py#L341)
+[实现：第 365 行](../src/jhtdb_pipeline/physics.py#L365)
 
 ```python
 def derivative_field(source: Any, destination: Any, derivative_component: int, domain_length: float, slab: int, workers: int=1) -> None
@@ -2270,7 +2355,7 @@ def derivative_field(source: Any, destination: Any, derivative_component: int, d
 
 ### `filter_field`
 
-[实现：第 359 行](../src/jhtdb_pipeline/physics.py#L359)
+[实现：第 383 行](../src/jhtdb_pipeline/physics.py#L383)
 
 ```python
 def filter_field(source: Any, destination: Any, temp_a: Any, temp_b: Any, sigma_grid: float, slab: int, workers: int=1) -> None
@@ -2280,37 +2365,37 @@ def filter_field(source: Any, destination: Any, temp_a: Any, temp_b: Any, sigma_
 
 ### `zero_field`
 
-[实现：第 379 行](../src/jhtdb_pipeline/physics.py#L379)
+[实现：第 403 行](../src/jhtdb_pipeline/physics.py#L403)
 
 ```python
 def zero_field(field: Any, slab: int) -> None
 ```
 
-调用：`min`, `range`, `release_pages`
+调用：`release_pages`, `spatial_slabs`
 
 ### `accumulate_product`
 
-[实现：第 386 行](../src/jhtdb_pipeline/physics.py#L386)
+[实现：第 410 行](../src/jhtdb_pipeline/physics.py#L410)
 
 ```python
 def accumulate_product(destination: Any, left: Any, right: Any, slab: int) -> None
 ```
 
-调用：`min`, `np.asarray`, `range`, `release_pages`, `slice`
+调用：`np.asarray`, `release_pages`, `spatial_slabs`
 
 ### `subtract_product`
 
-[实现：第 405 行](../src/jhtdb_pipeline/physics.py#L405)
+[实现：第 428 行](../src/jhtdb_pipeline/physics.py#L428)
 
 ```python
 def subtract_product(destination: Any, left: Any, right: Any, slab: int) -> None
 ```
 
-调用：`min`, `np.asarray`, `range`, `release_pages`, `slice`
+调用：`np.asarray`, `release_pages`, `spatial_slabs`
 
 ### `memmap`
 
-[实现：第 424 行](../src/jhtdb_pipeline/physics.py#L424)
+[实现：第 446 行](../src/jhtdb_pipeline/physics.py#L446)
 
 ```python
 def memmap(path: Path, shape: tuple[int, ...], mode: str='w+') -> np.memmap
@@ -2320,7 +2405,7 @@ def memmap(path: Path, shape: tuple[int, ...], mode: str='w+') -> np.memmap
 
 ### `close_memmap`
 
-[实现：第 429 行](../src/jhtdb_pipeline/physics.py#L429)
+[实现：第 451 行](../src/jhtdb_pipeline/physics.py#L451)
 
 ```python
 def close_memmap(mapped: np.memmap) -> None
@@ -2330,7 +2415,7 @@ def close_memmap(mapped: np.memmap) -> None
 
 ### `release_pages`
 
-[实现：第 436 行](../src/jhtdb_pipeline/physics.py#L436)
+[实现：第 458 行](../src/jhtdb_pipeline/physics.py#L458)
 
 ```python
 def release_pages(array: Any) -> None
@@ -2683,7 +2768,7 @@ import os
 import shutil
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 import numpy as np
 import zarr
 from filelock import FileLock
@@ -2692,11 +2777,11 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
 from .disk_fft import build_spectrum, filter_spectrum, mapped_array, release_pages
 from .cq import compute_cq, ensure_cq_result, write_cq_artifacts
-from .physics import ComponentView, ProductView, accumulate_product, axis2_spectrum, close_memmap, derivative_field, filter_field, filter_field_from_axis2_spectrum, filter_smooth_sharp_field, filter_smooth_sharp_from_spectrum, full_spectrum, regime_codes_from_thresholds, memmap, subtract_product, zero_field
-from .store import create_result_group, create_shared_gradient_group, hash_zarr_array, open_complete_result
+from .physics import ComponentView, ProductView, accumulate_product, axis2_spectrum, close_memmap, derivative_field, filter_field, filter_field_from_axis2_spectrum, filter_smooth_sharp_field, filter_smooth_sharp_from_spectrum, full_spectrum, regime_codes_from_thresholds, memmap, spatial_slabs, subtract_product, zero_field
+from .store import chunk_count, spatial_slices, create_result_group, create_shared_gradient_group, array_metadata, open_complete_result, report_metadata, report_summary
 from .sbar_qa import compute_sbar_qa, ensure_sbar_result, write_sbar_artifacts
 from .validation import atomic_json, input_manifest_hash
-from .weak_asymmetry import write_weak_asymmetry_artifacts
+from .weak_asymmetry import weak_asymmetry_summary, write_weak_asymmetry_artifacts
 ```
 
 模块常量/配置：
@@ -2707,7 +2792,7 @@ RESULT_FIELDS = {'velocity_bar': ('<f4', 4), 'gradient_bar': ('<f4', 5), 'work_f
 
 ### `_sharp_edge_metadata`
 
-[实现：第 59 行](../src/jhtdb_pipeline/processing.py#L59)
+[实现：第 64 行](../src/jhtdb_pipeline/processing.py#L64)
 
 ```python
 def _sharp_edge_metadata(cfg: PipelineConfig, sigma: float) -> dict[str, Any]
@@ -2715,7 +2800,7 @@ def _sharp_edge_metadata(cfg: PipelineConfig, sigma: float) -> dict[str, Any]
 
 ### `_filter_metadata_matches`
 
-[实现：第 65 行](../src/jhtdb_pipeline/processing.py#L65)
+[实现：第 70 行](../src/jhtdb_pipeline/processing.py#L70)
 
 ```python
 def _filter_metadata_matches(metadata: Any, cfg: PipelineConfig, sigma: float) -> bool
@@ -2725,17 +2810,17 @@ def _filter_metadata_matches(metadata: Any, cfg: PipelineConfig, sigma: float) -
 
 ### `_filter_with_optional_spectrum`
 
-[实现：第 83 行](../src/jhtdb_pipeline/processing.py#L83)
+[实现：第 88 行](../src/jhtdb_pipeline/processing.py#L88)
 
 ```python
 def _filter_with_optional_spectrum(source: Any, destination: Any, temp_a: Any, temp_b: Any, sigma: float, cfg: PipelineConfig, spectra: dict[tuple[Any, ...], np.ndarray] | None, key: tuple[Any, ...]) -> None
 ```
 
-调用：`Path`, `TemporaryDirectory`, `build_spectrum`, `close_memmap`, `filter_field`, `filter_field_from_axis2_spectrum`, `filter_smooth_sharp_field`, `filter_smooth_sharp_from_spectrum`, `filter_spectrum`, `release_pages`, `spectra.get`
+调用：`Path`, `TemporaryDirectory`, `build_spectrum`, `close_memmap`, `filter_spectrum`, `operation`, `release_pages`, `spectra.get`
 
 ### `_complete_result_schema`
 
-[实现：第 156 行](../src/jhtdb_pipeline/processing.py#L156)
+[实现：第 134 行](../src/jhtdb_pipeline/processing.py#L134)
 
 ```python
 def _complete_result_schema(path: Path, sigma_grid: float) -> int | None
@@ -2745,27 +2830,27 @@ def _complete_result_schema(path: Path, sigma_grid: float) -> int | None
 
 ### `_complete_result_is_current`
 
-[实现：第 173 行](../src/jhtdb_pipeline/processing.py#L173)
+[实现：第 151 行](../src/jhtdb_pipeline/processing.py#L151)
 
 ```python
 def _complete_result_is_current(cfg: PipelineConfig, path: Path, sigma_grid: float) -> bool
 ```
 
-调用：`_complete_result_schema`, `_filter_metadata_matches`, `all`, `input_manifest_hash`, `int`, `open_complete_result`, `root.attrs.get`, `tuple`
+调用：`_complete_result_schema`, `_filter_metadata_matches`, `all`, `cfg.stored_shape_zyx`, `input_manifest_hash`, `int`, `open_complete_result`, `root.attrs.get`, `tuple`
 
 ### `_shared_result_is_current`
 
-[实现：第 197 行](../src/jhtdb_pipeline/processing.py#L197)
+[实现：第 175 行](../src/jhtdb_pipeline/processing.py#L175)
 
 ```python
 def _shared_result_is_current(cfg: PipelineConfig, time_index: int, manifest_hash: str) -> bool
 ```
 
-调用：`cfg.shared_result_path`, `complete_path.is_file`, `json.loads`, `manifest.get`, `manifest_path.is_file`, `manifest_path.read_text`, `np.dtype`, `root.attrs.get`, `store_path.is_dir`, `str`, `tuple`, `zarr.open_group`
+调用：`cfg.shared_gradient_store_path`, `cfg.shared_result_path`, `cfg.stored_shape_zyx`, `complete_path.is_file`, `json.loads`, `manifest.get`, `manifest_path.is_file`, `manifest_path.read_text`, `np.dtype`, `root.attrs.get`, `store_path.is_dir`, `str`, `tuple`, `zarr.open_group`
 
 ### `_prepare_shared_gradient`
 
-[实现：第 223 行](../src/jhtdb_pipeline/processing.py#L223)
+[实现：第 203 行](../src/jhtdb_pipeline/processing.py#L203)
 
 ```python
 def _prepare_shared_gradient(cfg: PipelineConfig, time_index: int, manifest_hash: str) -> tuple[Any, bool]
@@ -2775,13 +2860,13 @@ def _prepare_shared_gradient(cfg: PipelineConfig, time_index: int, manifest_hash
 
 ### `_finalize_shared_gradient`
 
-[实现：第 240 行](../src/jhtdb_pipeline/processing.py#L240)
+[实现：第 220 行](../src/jhtdb_pipeline/processing.py#L220)
 
 ```python
 def _finalize_shared_gradient(cfg: PipelineConfig, time_index: int, manifest_hash: str, root: Any) -> Path
 ```
 
-调用：`(final / 'COMPLETE').is_file`, `RuntimeError`, `_safe_rmtree`, `_shared_result_is_current`, `atomic_json`, `cfg.physical_time`, `cfg.shared_result_path`, `cfg.shared_staging_result_path`, `final.exists`, `hash_zarr_array`, `list`, `np.dtype`, `os.replace`, `root.attrs.update`, `str`
+调用：`(final / 'COMPLETE').is_file`, `RuntimeError`, `_safe_rmtree`, `_shared_result_is_current`, `array_metadata`, `atomic_json`, `cfg.physical_time`, `cfg.shared_result_path`, `cfg.shared_staging_result_path`, `final.exists`, `list`, `os.replace`, `root.attrs.update`
 
 显式异常：
 
@@ -2791,7 +2876,7 @@ RuntimeError('refusing to replace a different complete shared result')
 
 ### `_shared_references`
 
-[实现：第 292 行](../src/jhtdb_pipeline/processing.py#L292)
+[实现：第 264 行](../src/jhtdb_pipeline/processing.py#L264)
 
 ```python
 def _shared_references(cfg: PipelineConfig, time_index: int, manifest_hash: str) -> dict[str, Any]
@@ -2801,7 +2886,7 @@ def _shared_references(cfg: PipelineConfig, time_index: int, manifest_hash: str)
 
 ### `_safe_rmtree`
 
-[实现：第 307 行](../src/jhtdb_pipeline/processing.py#L307)
+[实现：第 279 行](../src/jhtdb_pipeline/processing.py#L279)
 
 ```python
 def _safe_rmtree(path: Path, required_parent: Path) -> None
@@ -2815,92 +2900,84 @@ def _safe_rmtree(path: Path, required_parent: Path) -> None
 RuntimeError(f'refusing to remove unexpected path: {resolved}')
 ```
 
-### `_spatial_keys`
+### `_copy_sampled_field`
 
-[实现：第 316 行](../src/jhtdb_pipeline/processing.py#L316)
-
-```python
-def _spatial_keys(shape: tuple[int, int, int], chunks: tuple[int, int, int]) -> Iterator[tuple[slice, slice, slice]]
-```
-
-调用：`min`, `range`, `slice`
-
-### `_copy_field`
-
-[实现：第 327 行](../src/jhtdb_pipeline/processing.py#L327)
+[实现：第 288 行](../src/jhtdb_pipeline/processing.py#L288)
 
 ```python
-def _copy_field(cfg: PipelineConfig, source: Any, destination: Any, prefix: tuple[int, ...]=()) -> None
+def _copy_sampled_field(cfg: PipelineConfig, source: Any, destination: Any, prefix: tuple[int, ...]=()) -> None
 ```
 
-调用：`IOError`, `ValueError`, `_spatial_keys`, `int`, `np.all`, `np.array_equal`, `np.asarray`, `np.ascontiguousarray`, `np.isfinite`, `release_pages`, `tuple`
+Store original grid points 0,2,4,... along each spatial axis.
+
+调用：`IOError`, `ValueError`, `cfg.stored_shape_zyx`, `int`, `np.all`, `np.array_equal`, `np.asarray`, `np.ascontiguousarray`, `np.isfinite`, `release_pages`, `slice`, `spatial_slices`, `tuple`
 
 显式异常：
 
 ```python
-IOError('persistent full field failed write/read verification')
-ValueError('full field contains NaN or Inf')
+IOError('persistent sampled field failed write/read verification')
+ValueError('sampled field contains NaN or Inf')
 ```
 
 ### `_zero_zarr`
 
-[实现：第 347 行](../src/jhtdb_pipeline/processing.py#L347)
+[实现：第 310 行](../src/jhtdb_pipeline/processing.py#L310)
 
 ```python
 def _zero_zarr(array: Any) -> None
 ```
 
-调用：`_spatial_keys`, `int`, `np.zeros`, `tuple`
+调用：`int`, `np.zeros`, `spatial_slices`, `tuple`
 
 ### `_accumulate_zarr`
 
-[实现：第 354 行](../src/jhtdb_pipeline/processing.py#L354)
+[实现：第 317 行](../src/jhtdb_pipeline/processing.py#L317)
 
 ```python
 def _accumulate_zarr(destination: Any, source: Any) -> None
 ```
 
-调用：`_spatial_keys`, `int`, `np.asarray`, `tuple`
+调用：`int`, `np.asarray`, `spatial_slices`, `tuple`
 
 ### `_accumulate_zarr_product`
 
-[实现：第 363 行](../src/jhtdb_pipeline/processing.py#L363)
+[实现：第 326 行](../src/jhtdb_pipeline/processing.py#L326)
 
 ```python
 def _accumulate_zarr_product(destination: Any, left: Any, right: Any) -> None
 ```
 
-调用：`_spatial_keys`, `int`, `np.asarray`, `tuple`
+调用：`ProductView`, `_accumulate_zarr`
 
 ### `_copy_full`
 
-[实现：第 373 行](../src/jhtdb_pipeline/processing.py#L373)
+[实现：第 330 行](../src/jhtdb_pipeline/processing.py#L330)
 
 ```python
 def _copy_full(destination: Any, source: Any, slab: int) -> None
 ```
 
-调用：`min`, `np.asarray`, `range`, `slice`
+调用：`np.asarray`, `spatial_slabs`
 
 ### `_accumulate_full`
 
-[实现：第 383 行](../src/jhtdb_pipeline/processing.py#L383)
+[实现：第 335 行](../src/jhtdb_pipeline/processing.py#L335)
 
 ```python
 def _accumulate_full(destination: Any, source: Any, slab: int) -> None
 ```
 
-调用：`min`, `np.asarray`, `range`, `slice`
+调用：`np.asarray`, `spatial_slabs`
 
 ### `_field_statistics`
 
-[实现：第 395 行](../src/jhtdb_pipeline/processing.py#L395)
+[实现：第 342 行](../src/jhtdb_pipeline/processing.py#L342)
 
 ```python
 def _field_statistics(field: Any, slab: int) -> tuple[float, float, int]
 ```
 
-调用：`ValueError`, `float`, `max`, `min`, `np.abs`, `np.all`, `np.asarray`, `np.isfinite`, `np.max`, `np.square`, `np.square(values, dtype=np.float64).sum`, `range`, `release_pages`
+调用：`ValueError`, `float`, `max`, `np.abs`, `np.all`, `np.asarray`, `np.isfinite`, `np.max`, `np.square`, `np.square(values, dtype=np.float64).sum`, `release_pages`, `spatial_slabs`
 
 显式异常：
 
@@ -2910,7 +2987,7 @@ ValueError('spectral workspace contains NaN or Inf')
 
 ### `_divergence_metrics`
 
-[实现：第 413 行](../src/jhtdb_pipeline/processing.py#L413)
+[实现：第 357 行](../src/jhtdb_pipeline/processing.py#L357)
 
 ```python
 def _divergence_metrics(cfg: PipelineConfig, divergence_sumsq: float, divergence_maximum: float, point_count: int, gradient_sumsq: float, gradient_maximum: float, gradient_count: int) -> dict[str, float | int | bool | str]
@@ -2920,7 +2997,7 @@ def _divergence_metrics(cfg: PipelineConfig, divergence_sumsq: float, divergence
 
 ### `_reusable_filtered_velocity`
 
-[实现：第 441 行](../src/jhtdb_pipeline/processing.py#L441)
+[实现：第 385 行](../src/jhtdb_pipeline/processing.py#L385)
 
 ```python
 def _reusable_filtered_velocity(cfg: PipelineConfig, time_index: int, sigma: float, manifest_hash: str, expected_shape: tuple[int, ...]) -> np.memmap | None
@@ -2930,13 +3007,13 @@ def _reusable_filtered_velocity(cfg: PipelineConfig, time_index: int, sigma: flo
 
 ### `_write_full_regime`
 
-[实现：第 479 行](../src/jhtdb_pipeline/processing.py#L479)
+[实现：第 423 行](../src/jhtdb_pipeline/processing.py#L423)
 
 ```python
 def _write_full_regime(work_full: Any, work_resolved: Any, regime: Any, cfg: PipelineConfig) -> dict[str, Any]
 ```
 
-调用：`BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_spatial_keys`, `codes.ravel`, `float`, `int`, `max`, `np.all`, `np.asarray`, `np.bincount`, `np.isfinite`, `np.prod`, `np.sqrt`, `np.square`, `np.square(full, dtype=np.float64).sum`, `np.square(resolved, dtype=np.float64).sum`, `np.zeros`, `progress.add_task`, `progress.advance`, `regime_codes_from_thresholds`, `tuple`, `zip`
+调用：`BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `chunk_count`, `codes.ravel`, `float`, `int`, `max`, `np.all`, `np.asarray`, `np.bincount`, `np.isfinite`, `np.sqrt`, `np.square`, `np.square(full, dtype=np.float64).sum`, `np.square(resolved, dtype=np.float64).sum`, `np.zeros`, `progress.add_task`, `progress.advance`, `regime_codes_from_thresholds`, `spatial_slices`, `tuple`, `zip`
 
 显式异常：
 
@@ -2947,7 +3024,7 @@ ValueError('work fields contain NaN or Inf')
 
 ### `resource_plan`
 
-[实现：第 556 行](../src/jhtdb_pipeline/processing.py#L556)
+[实现：第 491 行](../src/jhtdb_pipeline/processing.py#L491)
 
 ```python
 def resource_plan(cfg: PipelineConfig) -> dict[str, float | str]
@@ -2957,7 +3034,7 @@ def resource_plan(cfg: PipelineConfig) -> dict[str, float | str]
 
 ### `_preflight_batch_space`
 
-[实现：第 631 行](../src/jhtdb_pipeline/processing.py#L631)
+[实现：第 566 行](../src/jhtdb_pipeline/processing.py#L566)
 
 ```python
 def _preflight_batch_space(cfg: PipelineConfig, time_index: int, count: int) -> None
@@ -2973,7 +3050,7 @@ RuntimeError(f'insufficient batch space on {path}: {free / 1024 ** 3:.2f} GiB fr
 
 ### `_preflight_result_space`
 
-[实现：第 655 行](../src/jhtdb_pipeline/processing.py#L655)
+[实现：第 590 行](../src/jhtdb_pipeline/processing.py#L590)
 
 ```python
 def _preflight_result_space(cfg: PipelineConfig) -> dict[str, float]
@@ -2989,7 +3066,7 @@ RuntimeError(f'insufficient result space: {usage.free / 1024 ** 3:.2f} GiB free,
 
 ### `_preflight_workspace_space`
 
-[实现：第 673 行](../src/jhtdb_pipeline/processing.py#L673)
+[实现：第 608 行](../src/jhtdb_pipeline/processing.py#L608)
 
 ```python
 def _preflight_workspace_space(cfg: PipelineConfig, time_index: int) -> None
@@ -3005,13 +3082,13 @@ RuntimeError(f'insufficient scratch workspace: {usage.free / 1024 ** 3:.2f} GiB 
 
 ### `process_full`
 
-[实现：第 689 行](../src/jhtdb_pipeline/processing.py#L689)
+[实现：第 624 行](../src/jhtdb_pipeline/processing.py#L624)
 
 ```python
 def process_full(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None, *, _raw_gradients: np.ndarray | None=None, _filter_spectra: dict[tuple[Any, ...], np.ndarray] | None=None, _acquire_lock: bool=True) -> Path
 ```
 
-调用：`BarColumn`, `ComponentView`, `Console`, `FileLock`, `ProductView`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_accumulate_full`, `_accumulate_zarr`, `_accumulate_zarr_product`, `_copy_field`, `_copy_full`, `_divergence_metrics`, `_field_statistics`, `_filter_with_optional_spectrum`, `_finalize_shared_gradient`, `_preflight_result_space`, `_preflight_workspace_space`, `_prepare_shared_gradient`, `_reusable_filtered_velocity`, `_safe_rmtree`, `_shared_references`, `_sharp_edge_metadata`, `_write_full_regime`, `_zero_zarr`, `accumulate_product`, `atomic_json`, `bool`, `cfg.lock_path.mkdir`, `cfg.raw_store_path`, `cfg.result_path`, `cfg.run_path`, `cfg.staging_result_path`, `cfg.workspace_path`, `close_memmap`, `compute_cq`, `compute_sbar_qa`, `create_result_group`, `derivative.flush`, `derivative_field`, `filtered_velocity.flush`, `float`, `input_manifest_hash`, `list`, `max`, `memmap`, `min`, `np.asarray`, `np.dtype`, `process_full`, `progress.add_task`, `progress.advance`, `range`, `raw_root.attrs.get`, `result.attrs.update`, `reuse_complete_result`, `sgs_transport.flush`, `slice`, `str`, `subtract_product`, `workspace.mkdir`, `write_cq_artifacts`, `write_sbar_artifacts`, `write_weak_asymmetry_artifacts`, `zarr.open_group`, `zero_field`
+调用：`BarColumn`, `ComponentView`, `Console`, `FileLock`, `ProductView`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_accumulate_full`, `_accumulate_zarr`, `_accumulate_zarr_product`, `_copy_full`, `_copy_sampled_field`, `_divergence_metrics`, `_field_statistics`, `_filter_with_optional_spectrum`, `_finalize_shared_gradient`, `_preflight_result_space`, `_preflight_workspace_space`, `_prepare_shared_gradient`, `_reusable_filtered_velocity`, `_safe_rmtree`, `_shared_references`, `_sharp_edge_metadata`, `_write_full_regime`, `_zero_zarr`, `accumulate_product`, `atomic_json`, `bool`, `cfg.lock_path.mkdir`, `cfg.raw_store_path`, `cfg.result_path`, `cfg.run_path`, `cfg.staging_result_path`, `cfg.workspace_path`, `close_memmap`, `compute_cq`, `compute_sbar_qa`, `create_result_group`, `derivative.flush`, `derivative_field`, `filtered_velocity.flush`, `float`, `input_manifest_hash`, `list`, `max`, `memmap`, `np.dtype`, `process_full`, `progress.add_task`, `progress.advance`, `range`, `raw_root.attrs.get`, `report_metadata`, `report_summary`, `result.attrs.update`, `reuse_complete_result`, `sgs_transport.flush`, `str`, `subtract_product`, `weak_asymmetry_summary`, `workspace.mkdir`, `write_cq_artifacts`, `write_sbar_artifacts`, `write_weak_asymmetry_artifacts`, `zarr.open_group`, `zero_field`
 
 显式异常：
 
@@ -3024,13 +3101,13 @@ ValueError('validated velocity cache has an unexpected schema')
 
 ### `finalize_result`
 
-[实现：第 1195 行](../src/jhtdb_pipeline/processing.py#L1195)
+[实现：第 1096 行](../src/jhtdb_pipeline/processing.py#L1096)
 
 ```python
 def finalize_result(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> Path
 ```
 
-调用：`(final / 'COMPLETE').is_file`, `FileExistsError`, `RESULT_FIELDS.items`, `RuntimeError`, `_safe_rmtree`, `_sharp_edge_metadata`, `atomic_json`, `bool`, `cfg.physical_time`, `cfg.result_path`, `cfg.run_path`, `cfg.staging_result_path`, `cfg.workspace_path`, `complete.open`, `dict`, `fields.items`, `final.exists`, `final.parent.mkdir`, `float`, `handle.fileno`, `handle.flush`, `handle.write`, `hash_zarr_array`, `input_manifest_hash`, `json.dumps`, `len`, `list`, `np.dtype`, `os.fsync`, `os.replace`, `result_zarr_name`, `reuse_complete_result`, `root.attrs.get`, `root.attrs.update`, `staging.is_dir`, `str`, `tuple`, `zarr.open_group`
+调用：`(final / 'COMPLETE').is_file`, `FileExistsError`, `RESULT_FIELDS.items`, `RuntimeError`, `_safe_rmtree`, `_sharp_edge_metadata`, `array_metadata`, `atomic_json`, `bool`, `cfg.physical_time`, `cfg.result_path`, `cfg.run_path`, `cfg.staging_result_path`, `cfg.stored_shape_zyx`, `cfg.workspace_path`, `complete.open`, `dict`, `fields.items`, `final.exists`, `final.parent.mkdir`, `float`, `handle.fileno`, `handle.flush`, `handle.write`, `input_manifest_hash`, `json.dumps`, `len`, `list`, `np.dtype`, `os.fsync`, `os.replace`, `result_zarr_name`, `reuse_complete_result`, `root.attrs.get`, `root.attrs.update`, `staging.is_dir`, `str`, `tuple`, `zarr.open_group`
 
 显式异常：
 
@@ -3045,7 +3122,7 @@ RuntimeError(f'result field is missing: {name}')
 
 ### `_build_batch_reuse`
 
-[实现：第 1303 行](../src/jhtdb_pipeline/processing.py#L1303)
+[实现：第 1186 行](../src/jhtdb_pipeline/processing.py#L1186)
 
 ```python
 def _build_batch_reuse(cfg: PipelineConfig, raw: Any, cache_dir: Path | None=None) -> tuple[np.ndarray, dict[tuple[Any, ...], np.ndarray]]
@@ -3063,7 +3140,7 @@ ValueError('memmap cache requires a workspace directory')
 
 ### `_build_batch_reuse.spectrum_builder`
 
-[实现：第 1347 行](../src/jhtdb_pipeline/processing.py#L1347)
+[实现：第 1230 行](../src/jhtdb_pipeline/processing.py#L1230)
 
 ```python
 def _build_batch_reuse.spectrum_builder(source, slab, *, workers)
@@ -3073,7 +3150,7 @@ def _build_batch_reuse.spectrum_builder(source, slab, *, workers)
 
 ### `_write_filter_batch_manifest`
 
-[实现：第 1402 行](../src/jhtdb_pipeline/processing.py#L1402)
+[实现：第 1285 行](../src/jhtdb_pipeline/processing.py#L1285)
 
 ```python
 def _write_filter_batch_manifest(cfg: PipelineConfig, time_index: int, sigmas: tuple[float, ...], results: dict[float, Path], status: str) -> None
@@ -3083,7 +3160,7 @@ def _write_filter_batch_manifest(cfg: PipelineConfig, time_index: int, sigmas: t
 
 ### `process_batch`
 
-[实现：第 1455 行](../src/jhtdb_pipeline/processing.py#L1455)
+[实现：第 1338 行](../src/jhtdb_pipeline/processing.py#L1338)
 
 ```python
 def process_batch(cfg: PipelineConfig, time_index: int, sigma_grids: tuple[float, ...] | None=None) -> list[Path]
@@ -3106,7 +3183,7 @@ ValueError('sigma values must be unique')
 
 ### `reuse_complete_result`
 
-[实现：第 1542 行](../src/jhtdb_pipeline/processing.py#L1542)
+[实现：第 1425 行](../src/jhtdb_pipeline/processing.py#L1425)
 
 ```python
 def reuse_complete_result(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> Path | None
@@ -3134,7 +3211,6 @@ from regime_pi.statistics import DEFAULT_REGIME_PI_OUTPUT_ROOT, REGIME_PI_REPORT
 
 ```python
 from __future__ import annotations
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -3146,8 +3222,8 @@ from filelock import FileLock
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
-from .store import spatial_slices
-from .validation import atomic_json
+from .store import chunk_count, load_chained_report, report_metadata, report_summary, spatial_slices
+from .validation import atomic_json, update_report_metadata
 ```
 
 模块常量/配置：
@@ -3160,7 +3236,7 @@ FIELD_LABELS = {'s_bar': 'ΣS̄', 'pi': 'ΣΠ', 'work_resolved': 'ΣW_res', 'wor
 
 ### `_safe_ratio`
 
-[实现：第 31 行](../src/jhtdb_pipeline/sbar_qa.py#L31)
+[实现：第 32 行](../src/jhtdb_pipeline/sbar_qa.py#L32)
 
 ```python
 def _safe_ratio(numerator: float, denominator: float) -> tuple[float | None, str | None]
@@ -3170,13 +3246,13 @@ def _safe_ratio(numerator: float, denominator: float) -> tuple[float | None, str
 
 ### `compute_sbar_qa`
 
-[实现：第 39 行](../src/jhtdb_pipeline/sbar_qa.py#L39)
+[实现：第 40 行](../src/jhtdb_pipeline/sbar_qa.py#L40)
 
 ```python
 def compute_sbar_qa(root: Any, cfg: PipelineConfig, *, scope: str) -> dict[str, Any]
 ```
 
-调用：`BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_safe_ratio`, `any`, `arrays.items`, `arrays.values`, `block.astype`, `block.sum`, `bool`, `field_sumsq.items`, `field_sumsq.values`, `float`, `int`, `len`, `max`, `np.abs`, `np.all`, `np.asarray`, `np.dtype`, `np.isfinite`, `np.max`, `np.prod`, `np.sqrt`, `np.square`, `np.square(block).sum`, `np.square(residual).sum`, `progress.add_task`, `progress.advance`, `shapes.pop`, `spatial_slices`, `sum`, `tuple`, `values.items`, `values.values`, `values64.items`, `zip`
+调用：`BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_safe_ratio`, `any`, `arrays.items`, `arrays.values`, `block.astype`, `block.sum`, `bool`, `chunk_count`, `field_sumsq.items`, `field_sumsq.values`, `float`, `int`, `len`, `max`, `np.abs`, `np.all`, `np.asarray`, `np.dtype`, `np.isfinite`, `np.max`, `np.sqrt`, `np.square`, `np.square(block).sum`, `np.square(residual).sum`, `progress.add_task`, `progress.advance`, `shapes.pop`, `spatial_slices`, `sum`, `tuple`, `values.items`, `values.values`, `values64.items`
 
 显式异常：
 
@@ -3190,7 +3266,7 @@ ValueError('the four energy fields contain NaN or Inf')
 
 ### `write_sbar_artifacts`
 
-[实现：第 167 行](../src/jhtdb_pipeline/sbar_qa.py#L167)
+[实现：第 159 行](../src/jhtdb_pipeline/sbar_qa.py#L159)
 
 ```python
 def write_sbar_artifacts(result_dir: Path, report: dict[str, Any]) -> str
@@ -3198,29 +3274,19 @@ def write_sbar_artifacts(result_dir: Path, report: dict[str, Any]) -> str
 
 调用：`atomic_json`, `figure.update_layout`, `figure.write_html`, `go.Bar`, `go.Figure`, `os.replace`, `output.with_suffix`, `str`
 
-### `_report_hash`
-
-[实现：第 193 行](../src/jhtdb_pipeline/sbar_qa.py#L193)
-
-```python
-def _report_hash(path: Path) -> str
-```
-
-调用：`hashlib.sha256`, `hashlib.sha256(path.read_bytes()).hexdigest`, `path.read_bytes`
-
 ### `_load_chained_report`
 
-[实现：第 197 行](../src/jhtdb_pipeline/sbar_qa.py#L197)
+[实现：第 185 行](../src/jhtdb_pipeline/sbar_qa.py#L185)
 
 ```python
 def _load_chained_report(result_dir: Path, root: Any) -> dict[str, Any] | None
 ```
 
-调用：`(result_dir / 's_bar_global_totals.html').is_file`, `_report_hash`, `complete.get`, `complete_path.is_file`, `complete_path.read_text`, `json.loads`, `manifest.get`, `manifest_path.is_file`, `manifest_path.read_text`, `path.is_file`, `path.read_text`, `report.get`, `root.attrs.get`
+调用：`load_chained_report`
 
 ### `_reclassify_report`
 
-[实现：第 229 行](../src/jhtdb_pipeline/sbar_qa.py#L229)
+[实现：第 189 行](../src/jhtdb_pipeline/sbar_qa.py#L189)
 
 ```python
 def _reclassify_report(report: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]
@@ -3230,7 +3296,7 @@ def _reclassify_report(report: dict[str, Any], cfg: PipelineConfig) -> dict[str,
 
 ### `_can_reclassify`
 
-[实现：第 261 行](../src/jhtdb_pipeline/sbar_qa.py#L261)
+[实现：第 221 行](../src/jhtdb_pipeline/sbar_qa.py#L221)
 
 ```python
 def _can_reclassify(report: dict[str, Any]) -> bool
@@ -3240,7 +3306,7 @@ def _can_reclassify(report: dict[str, Any]) -> bool
 
 ### `_thresholds_are_current`
 
-[实现：第 276 行](../src/jhtdb_pipeline/sbar_qa.py#L276)
+[实现：第 236 行](../src/jhtdb_pipeline/sbar_qa.py#L236)
 
 ```python
 def _thresholds_are_current(report: dict[str, Any], cfg: PipelineConfig) -> bool
@@ -3250,7 +3316,7 @@ def _thresholds_are_current(report: dict[str, Any], cfg: PipelineConfig) -> bool
 
 ### `sbar_report_is_current`
 
-[实现：第 303 行](../src/jhtdb_pipeline/sbar_qa.py#L303)
+[实现：第 263 行](../src/jhtdb_pipeline/sbar_qa.py#L263)
 
 ```python
 def sbar_report_is_current(result_dir: Path, root: Any, cfg: PipelineConfig) -> bool
@@ -3260,13 +3326,13 @@ def sbar_report_is_current(result_dir: Path, root: Any, cfg: PipelineConfig) -> 
 
 ### `_run_sbar_qa_locked`
 
-[实现：第 310 行](../src/jhtdb_pipeline/sbar_qa.py#L310)
+[实现：第 270 行](../src/jhtdb_pipeline/sbar_qa.py#L270)
 
 ```python
 def _run_sbar_qa_locked(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> dict[str, Any]
 ```
 
-调用：`(result_dir / 'COMPLETE').is_file`, `RuntimeError`, `_can_reclassify`, `_load_chained_report`, `_reclassify_report`, `_thresholds_are_current`, `atomic_json`, `cfg.result_path`, `compute_sbar_qa`, `float`, `json.loads`, `manifest.update`, `manifest_path.read_text`, `qa_path.read_text`, `result_zarr_name`, `root.attrs.get`, `root.attrs.update`, `str`, `write_sbar_artifacts`, `zarr.open_group`
+调用：`(result_dir / 'COMPLETE').is_file`, `RuntimeError`, `_can_reclassify`, `_load_chained_report`, `_reclassify_report`, `_thresholds_are_current`, `atomic_json`, `cfg.result_path`, `compute_sbar_qa`, `float`, `json.loads`, `qa_path.read_text`, `report_metadata`, `report_summary`, `result_zarr_name`, `root.attrs.get`, `str`, `update_report_metadata`, `write_sbar_artifacts`, `zarr.open_group`
 
 显式异常：
 
@@ -3277,7 +3343,7 @@ RuntimeError('current full-domain result schema is required')
 
 ### `run_sbar_qa`
 
-[实现：第 366 行](../src/jhtdb_pipeline/sbar_qa.py#L366)
+[实现：第 304 行](../src/jhtdb_pipeline/sbar_qa.py#L304)
 
 ```python
 def run_sbar_qa(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> dict[str, Any]
@@ -3287,7 +3353,7 @@ def run_sbar_qa(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=N
 
 ### `ensure_sbar_result`
 
-[实现：第 378 行](../src/jhtdb_pipeline/sbar_qa.py#L378)
+[实现：第 316 行](../src/jhtdb_pipeline/sbar_qa.py#L316)
 
 ```python
 def ensure_sbar_result(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> Path
@@ -3317,7 +3383,7 @@ import numpy as np
 import zarr
 from numcodecs import Blosc
 from numcodecs import blosc
-from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
+from .config import READABLE_RESULT_SCHEMAS, RESULT_SCHEMA_VERSION, SAMPLED_FIELDS, PipelineConfig, field_sampling, result_zarr_name
 from .planning import Tile
 ```
 
@@ -3419,21 +3485,21 @@ def VelocityStore.mark_validated(self, manifest_hash: str) -> None
 def create_result_group(cfg: PipelineConfig, time_index: int, sigma_grid: float, *, overwrite: bool)
 ```
 
-调用：`cfg.physical_time`, `cfg.staging_result_path`, `compressor`, `float`, `list`, `min`, `result_zarr_name`, `root.attrs.update`, `root.require_dataset`, `staging.mkdir`, `str`, `zarr.open_group`
+调用：`cfg.physical_time`, `cfg.staging_result_path`, `cfg.stored_shape_zyx`, `compressor`, `float`, `list`, `min`, `result_zarr_name`, `root.attrs.update`, `root.require_dataset`, `staging.mkdir`, `str`, `tuple`, `zarr.open_group`
 
 ### `create_shared_gradient_group`
 
-[实现：第 172 行](../src/jhtdb_pipeline/store.py#L172)
+[实现：第 169 行](../src/jhtdb_pipeline/store.py#L169)
 
 ```python
 def create_shared_gradient_group(cfg: PipelineConfig, time_index: int, *, staging: bool, overwrite: bool)
 ```
 
-调用：`cfg.physical_time`, `cfg.shared_result_path`, `cfg.shared_staging_result_path`, `compressor`, `directory.mkdir`, `list`, `min`, `root.attrs.update`, `root.require_dataset`, `str`, `zarr.open_group`
+调用：`cfg.physical_time`, `cfg.shared_result_path`, `cfg.shared_staging_result_path`, `cfg.stored_shape_zyx`, `compressor`, `directory.mkdir`, `list`, `min`, `root.attrs.update`, `root.require_dataset`, `str`, `zarr.open_group`
 
 ### `CompositeResult`
 
-[实现：第 213 行](../src/jhtdb_pipeline/store.py#L213)
+[实现：第 211 行](../src/jhtdb_pipeline/store.py#L211)
 
 ```python
 class CompositeResult()
@@ -3443,7 +3509,7 @@ Read-only logical result joining per-sigma and shared arrays.
 
 ### `CompositeResult.__init__`
 
-[实现：第 216 行](../src/jhtdb_pipeline/store.py#L216)
+[实现：第 214 行](../src/jhtdb_pipeline/store.py#L214)
 
 ```python
 def CompositeResult.__init__(self, root: Any, shared: dict[str, Any])
@@ -3451,7 +3517,7 @@ def CompositeResult.__init__(self, root: Any, shared: dict[str, Any])
 
 ### `CompositeResult.__contains__`
 
-[实现：第 221 行](../src/jhtdb_pipeline/store.py#L221)
+[实现：第 219 行](../src/jhtdb_pipeline/store.py#L219)
 
 ```python
 def CompositeResult.__contains__(self, name: str) -> bool
@@ -3459,7 +3525,7 @@ def CompositeResult.__contains__(self, name: str) -> bool
 
 ### `CompositeResult.__getitem__`
 
-[实现：第 224 行](../src/jhtdb_pipeline/store.py#L224)
+[实现：第 222 行](../src/jhtdb_pipeline/store.py#L222)
 
 ```python
 def CompositeResult.__getitem__(self, name: str) -> Any
@@ -3467,7 +3533,7 @@ def CompositeResult.__getitem__(self, name: str) -> Any
 
 ### `CompositeResult.__iter__`
 
-[实现：第 229 行](../src/jhtdb_pipeline/store.py#L229)
+[实现：第 227 行](../src/jhtdb_pipeline/store.py#L227)
 
 ```python
 def CompositeResult.__iter__(self)
@@ -3477,7 +3543,7 @@ def CompositeResult.__iter__(self)
 
 ### `CompositeResult.keys`
 
-[实现：第 232 行](../src/jhtdb_pipeline/store.py#L232)
+[实现：第 230 行](../src/jhtdb_pipeline/store.py#L230)
 
 ```python
 def CompositeResult.keys(self)
@@ -3487,7 +3553,7 @@ def CompositeResult.keys(self)
 
 ### `CompositeResult.array_keys`
 
-[实现：第 235 行](../src/jhtdb_pipeline/store.py#L235)
+[实现：第 233 行](../src/jhtdb_pipeline/store.py#L233)
 
 ```python
 def CompositeResult.array_keys(self)
@@ -3495,9 +3561,53 @@ def CompositeResult.array_keys(self)
 
 调用：`iter`, `self.keys`
 
+### `chunk_count`
+
+[实现：第 237 行](../src/jhtdb_pipeline/store.py#L237)
+
+```python
+def chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int
+```
+
+Number of chunks, including a partial chunk at each boundary.
+
+调用：`int`, `np.prod`, `zip`
+
+### `report_summary`
+
+[实现：第 243 行](../src/jhtdb_pipeline/store.py#L243)
+
+```python
+def report_summary(report: dict[str, Any], report_hash: str, **details: Any) -> dict[str, Any]
+```
+
+Common QA summary fields, followed by report-specific metrics.
+
+### `report_metadata`
+
+[实现：第 256 行](../src/jhtdb_pipeline/store.py#L256)
+
+```python
+def report_metadata(name: str, report: dict[str, Any], report_hash: str) -> dict[str, Any]
+```
+
+Prefixed report fields shared by result manifests and Zarr attributes.
+
+### `load_chained_report`
+
+[实现：第 267 行](../src/jhtdb_pipeline/store.py#L267)
+
+```python
+def load_chained_report(result_dir: Path, root: Any, name: str, version: int, *, html_name: str | None=None) -> dict[str, Any] | None
+```
+
+Read a QA report only when its version and complete hash chain match.
+
+调用：`all`, `complete.get`, `complete_path.read_text`, `hashlib.sha256`, `hashlib.sha256(manifest_path.read_bytes()).hexdigest`, `hashlib.sha256(report_path.read_bytes()).hexdigest`, `json.loads`, `manifest.get`, `manifest_path.read_bytes`, `manifest_path.read_text`, `path.is_file`, `report.get`, `report_path.read_bytes`, `report_path.read_text`, `root.attrs.get`
+
 ### `spatial_slices`
 
-[实现：第 239 行](../src/jhtdb_pipeline/store.py#L239)
+[实现：第 298 行](../src/jhtdb_pipeline/store.py#L298)
 
 ```python
 def spatial_slices(shape: tuple[int, ...], chunk_shape: tuple[int, ...]) -> Iterator[tuple[slice, ...]]
@@ -3513,7 +3623,7 @@ ValueError('shape and chunk_shape ranks differ')
 
 ### `spatial_slices.walk`
 
-[实现：第 243 行](../src/jhtdb_pipeline/store.py#L243)
+[实现：第 302 行](../src/jhtdb_pipeline/store.py#L302)
 
 ```python
 def spatial_slices.walk(axis: int, prefix: tuple[slice, ...])
@@ -3523,7 +3633,7 @@ def spatial_slices.walk(axis: int, prefix: tuple[slice, ...])
 
 ### `hash_zarr_array`
 
-[实现：第 254 行](../src/jhtdb_pipeline/store.py#L254)
+[实现：第 313 行](../src/jhtdb_pipeline/store.py#L313)
 
 ```python
 def hash_zarr_array(array: Any) -> tuple[str, int, float, float]
@@ -3537,23 +3647,36 @@ def hash_zarr_array(array: Any) -> tuple[str, int, float, float]
 ValueError('result array contains NaN or Inf')
 ```
 
+### `array_metadata`
+
+[实现：第 329 行](../src/jhtdb_pipeline/store.py#L329)
+
+```python
+def array_metadata(array: Any) -> dict[str, Any]
+```
+
+Full chunk-streamed hash, shape, storage format and finite-value bounds.
+
+调用：`hash_zarr_array`, `list`, `np.dtype`, `str`
+
 ### `open_complete_result`
 
-[实现：第 270 行](../src/jhtdb_pipeline/store.py#L270)
+[实现：第 343 行](../src/jhtdb_pipeline/store.py#L343)
 
 ```python
 def open_complete_result(path: Path)
 ```
 
-调用：`(path / 'COMPLETE').is_file`, `(path / 'manifest.json').read_text`, `(path / 'shared_refs.json').read_text`, `CompositeResult`, `Path`, `Path(references['shared_complete']).is_file`, `RuntimeError`, `float`, `json.loads`, `manifest.get`, `raw_root.attrs.get`, `references.get`, `result_zarr_name`, `reversed`, `root.attrs.get`, `shared_root.attrs.get`, `str`, `tuple`, `zarr.open_group`
+调用：`(path / 'COMPLETE').is_file`, `(path / 'manifest.json').read_text`, `(path / 'shared_refs.json').read_text`, `CompositeResult`, `Path`, `Path(references['shared_complete']).is_file`, `RuntimeError`, `field_sampling`, `float`, `json.loads`, `manifest.get`, `raw_root.attrs.get`, `references.get`, `result_zarr_name`, `reversed`, `root.attrs.get`, `shared_root.attrs.get`, `str`, `tuple`, `zarr.open_group`
 
 显式异常：
 
 ```python
 RuntimeError('result and shared inputs have different or incomplete metadata')
-RuntimeError('result requires full-domain schema v7; rebuild from validated velocity')
+RuntimeError('result requires schema v7 or v8; rebuild from validated velocity')
+RuntimeError('result sampling metadata does not match the original grid')
+RuntimeError(f'result field has an unexpected storage shape: {name}')
 RuntimeError(f'result field is missing: {name}')
-RuntimeError(f'result field is not full-domain: {name}')
 RuntimeError(f'result is not complete: {path}')
 RuntimeError(f'result metadata is incomplete or outdated: {path}')
 RuntimeError(f'shared full-domain data is not complete: {shared_path}')
@@ -3607,9 +3730,21 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> str
 
 调用：`handle.fileno`, `handle.flush`, `handle.write`, `hashlib.sha256`, `hashlib.sha256(encoded).hexdigest`, `json.dumps`, `json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode`, `os.fsync`, `os.replace`, `path.parent.mkdir`, `path.with_suffix`, `temporary.open`
 
-### `_seam_statistics`
+### `update_report_metadata`
 
 [实现：第 32 行](../src/jhtdb_pipeline/validation.py#L32)
+
+```python
+def update_report_metadata(result_dir: Path, root: Any, metadata: dict[str, Any]) -> None
+```
+
+Refresh manifest, attrs, then COMPLETE; caller holds the QA metadata lock.
+
+调用：`atomic_json`, `json.loads`, `manifest.update`, `manifest_path.read_text`, `root.attrs.update`
+
+### `_seam_statistics`
+
+[实现：第 44 行](../src/jhtdb_pipeline/validation.py#L44)
 
 ```python
 def _seam_statistics(array: Any) -> dict[str, dict[str, float]]
@@ -3619,7 +3754,7 @@ def _seam_statistics(array: Any) -> dict[str, dict[str, float]]
 
 ### `validate_snapshot`
 
-[实现：第 65 行](../src/jhtdb_pipeline/validation.py#L65)
+[实现：第 77 行](../src/jhtdb_pipeline/validation.py#L77)
 
 ```python
 def validate_snapshot(cfg: PipelineConfig, time_index: int) -> dict[str, Any]
@@ -3640,7 +3775,7 @@ ValueError(f'velocity cache schema mismatch: shape={array.shape}, dtype={array.d
 
 ### `input_manifest_hash`
 
-[实现：第 166 行](../src/jhtdb_pipeline/validation.py#L166)
+[实现：第 178 行](../src/jhtdb_pipeline/validation.py#L178)
 
 ```python
 def input_manifest_hash(cfg: PipelineConfig, time_index: int) -> str
@@ -3662,7 +3797,6 @@ RuntimeError('the complete velocity cache has not passed validation')
 
 ```python
 from __future__ import annotations
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -3674,8 +3808,8 @@ from filelock import FileLock
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
-from .store import spatial_slices
-from .validation import atomic_json
+from .store import chunk_count, load_chained_report, report_metadata, report_summary, spatial_slices
+from .validation import atomic_json, update_report_metadata
 ```
 
 模块常量/配置：
@@ -3686,7 +3820,7 @@ WEAK_ASYMMETRY_REPORT_VERSION = 2
 
 ### `AbsPiPercentileAccumulator`
 
-[实现：第 24 行](../src/jhtdb_pipeline/weak_asymmetry.py#L24)
+[实现：第 25 行](../src/jhtdb_pipeline/weak_asymmetry.py#L25)
 
 ```python
 class AbsPiPercentileAccumulator()
@@ -3696,7 +3830,7 @@ Compute exact linear p99/max from one stream of nonnegative float32 data.
 
 ### `AbsPiPercentileAccumulator.__init__`
 
-[实现：第 27 行](../src/jhtdb_pipeline/weak_asymmetry.py#L27)
+[实现：第 28 行](../src/jhtdb_pipeline/weak_asymmetry.py#L28)
 
 ```python
 def AbsPiPercentileAccumulator.__init__(self, point_count: int) -> None
@@ -3712,7 +3846,7 @@ ValueError('percentile point count must be positive')
 
 ### `AbsPiPercentileAccumulator.add`
 
-[实现：第 40 行](../src/jhtdb_pipeline/weak_asymmetry.py#L40)
+[实现：第 41 行](../src/jhtdb_pipeline/weak_asymmetry.py#L41)
 
 ```python
 def AbsPiPercentileAccumulator.add(self, absolute_values: np.ndarray) -> None
@@ -3728,7 +3862,7 @@ ValueError('absolute pi values must be finite and nonnegative')
 
 ### `AbsPiPercentileAccumulator._consolidate`
 
-[实现：第 50 行](../src/jhtdb_pipeline/weak_asymmetry.py#L50)
+[实现：第 51 行](../src/jhtdb_pipeline/weak_asymmetry.py#L51)
 
 ```python
 def AbsPiPercentileAccumulator._consolidate(self) -> None
@@ -3738,7 +3872,7 @@ def AbsPiPercentileAccumulator._consolidate(self) -> None
 
 ### `AbsPiPercentileAccumulator.result`
 
-[实现：第 64 行](../src/jhtdb_pipeline/weak_asymmetry.py#L64)
+[实现：第 65 行](../src/jhtdb_pipeline/weak_asymmetry.py#L65)
 
 ```python
 def AbsPiPercentileAccumulator.result(self) -> tuple[float, float]
@@ -3752,19 +3886,9 @@ def AbsPiPercentileAccumulator.result(self) -> tuple[float, float]
 RuntimeError('p99 point coverage is incomplete')
 ```
 
-### `_chunk_count`
-
-[实现：第 79 行](../src/jhtdb_pipeline/weak_asymmetry.py#L79)
-
-```python
-def _chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int
-```
-
-调用：`int`, `np.prod`, `zip`
-
 ### `build_weak_asymmetry_report`
 
-[实现：第 91 行](../src/jhtdb_pipeline/weak_asymmetry.py#L91)
+[实现：第 80 行](../src/jhtdb_pipeline/weak_asymmetry.py#L80)
 
 ```python
 def build_weak_asymmetry_report(*, point_count: int, pi_sum: float, abs_pi_sum: float, pi_sumsq: float, abs_pi_p99: float, abs_pi_max: float, positive_sum: float, negative_sum: float, positive_count: int, negative_count: int, zero_count: int, closure_relative_max: float) -> dict[str, Any]
@@ -3780,7 +3904,7 @@ ValueError('weak-asymmetry point count must be positive')
 
 ### `_safe_nonnegative_ratio`
 
-[实现：第 200 行](../src/jhtdb_pipeline/weak_asymmetry.py#L200)
+[实现：第 189 行](../src/jhtdb_pipeline/weak_asymmetry.py#L189)
 
 ```python
 def _safe_nonnegative_ratio(numerator: float, denominator: float, denominator_name: str) -> tuple[float | None, str | None]
@@ -3788,13 +3912,13 @@ def _safe_nonnegative_ratio(numerator: float, denominator: float, denominator_na
 
 ### `compute_weak_asymmetry`
 
-[实现：第 210 行](../src/jhtdb_pipeline/weak_asymmetry.py#L210)
+[实现：第 199 行](../src/jhtdb_pipeline/weak_asymmetry.py#L199)
 
 ```python
 def compute_weak_asymmetry(root: Any, cfg: PipelineConfig) -> dict[str, Any]
 ```
 
-调用：`AbsPiPercentileAccumulator`, `BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `_chunk_count`, `absolute_values.sum`, `build_weak_asymmetry_report`, `float`, `int`, `np.abs`, `np.all`, `np.any`, `np.asarray`, `np.count_nonzero`, `np.dtype`, `np.isfinite`, `np.prod`, `np.square`, `np.square(values64).sum`, `progress.add_task`, `progress.advance`, `spatial_slices`, `tail.add`, `tail.result`, `tuple`, `values.astype`, `values64.sum`, `values64[negative].sum`, `values64[positive].sum`
+调用：`AbsPiPercentileAccumulator`, `BarColumn`, `Console`, `Progress`, `RuntimeError`, `SpinnerColumn`, `TextColumn`, `TimeElapsedColumn`, `ValueError`, `absolute_values.sum`, `build_weak_asymmetry_report`, `chunk_count`, `float`, `int`, `np.abs`, `np.all`, `np.any`, `np.asarray`, `np.count_nonzero`, `np.dtype`, `np.isfinite`, `np.prod`, `np.square`, `np.square(values64).sum`, `progress.add_task`, `progress.advance`, `spatial_slices`, `tail.add`, `tail.result`, `tuple`, `values.astype`, `values64.sum`, `values64[negative].sum`, `values64[positive].sum`
 
 显式异常：
 
@@ -3805,7 +3929,7 @@ ValueError('pi contains NaN or Inf')
 
 ### `write_weak_asymmetry_artifacts`
 
-[实现：第 279 行](../src/jhtdb_pipeline/weak_asymmetry.py#L279)
+[实现：第 268 行](../src/jhtdb_pipeline/weak_asymmetry.py#L268)
 
 ```python
 def write_weak_asymmetry_artifacts(result_dir: Path, report: dict[str, Any]) -> str
@@ -3813,29 +3937,19 @@ def write_weak_asymmetry_artifacts(result_dir: Path, report: dict[str, Any]) -> 
 
 调用：`atomic_json`, `figure.update_layout`, `figure.write_html`, `go.Bar`, `go.Figure`, `os.replace`, `output.with_suffix`, `str`
 
-### `_file_hash`
-
-[实现：第 310 行](../src/jhtdb_pipeline/weak_asymmetry.py#L310)
-
-```python
-def _file_hash(path: Path) -> str
-```
-
-调用：`hashlib.sha256`, `hashlib.sha256(path.read_bytes()).hexdigest`, `path.read_bytes`
-
 ### `_load_chained_report`
 
-[实现：第 314 行](../src/jhtdb_pipeline/weak_asymmetry.py#L314)
+[实现：第 299 行](../src/jhtdb_pipeline/weak_asymmetry.py#L299)
 
 ```python
 def _load_chained_report(result_dir: Path, root: Any) -> dict[str, Any] | None
 ```
 
-调用：`_file_hash`, `all`, `complete.get`, `complete_path.read_text`, `json.loads`, `manifest.get`, `manifest_path.read_text`, `path.is_file`, `report.get`, `report_path.read_text`, `root.attrs.get`
+调用：`load_chained_report`
 
 ### `weak_asymmetry_report_is_current`
 
-[实现：第 350 行](../src/jhtdb_pipeline/weak_asymmetry.py#L350)
+[实现：第 303 行](../src/jhtdb_pipeline/weak_asymmetry.py#L303)
 
 ```python
 def weak_asymmetry_report_is_current(result_dir: Path, root: Any) -> bool
@@ -3843,19 +3957,31 @@ def weak_asymmetry_report_is_current(result_dir: Path, root: Any) -> bool
 
 调用：`_load_chained_report`, `all`, `bool`, `report.get`
 
+### `weak_asymmetry_summary`
+
+[实现：第 316 行](../src/jhtdb_pipeline/weak_asymmetry.py#L316)
+
+```python
+def weak_asymmetry_summary(report: dict[str, Any], report_hash: str) -> dict[str, Any]
+```
+
+QA summary with the shared global ratios and closure fields.
+
+调用：`report_summary`
+
 ### `_persist_weak_asymmetry`
 
-[实现：第 363 行](../src/jhtdb_pipeline/weak_asymmetry.py#L363)
+[实现：第 326 行](../src/jhtdb_pipeline/weak_asymmetry.py#L326)
 
 ```python
 def _persist_weak_asymmetry(result_dir: Path, root: Any, report: dict[str, Any]) -> None
 ```
 
-调用：`atomic_json`, `json.loads`, `manifest.update`, `manifest_path.read_text`, `qa_path.read_text`, `root.attrs.update`, `write_weak_asymmetry_artifacts`
+调用：`atomic_json`, `json.loads`, `qa_path.read_text`, `report_metadata`, `update_report_metadata`, `weak_asymmetry_summary`, `write_weak_asymmetry_artifacts`
 
 ### `run_weak_asymmetry`
 
-[实现：第 401 行](../src/jhtdb_pipeline/weak_asymmetry.py#L401)
+[实现：第 339 行](../src/jhtdb_pipeline/weak_asymmetry.py#L339)
 
 ```python
 def run_weak_asymmetry(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> dict[str, Any]
@@ -3872,7 +3998,7 @@ RuntimeError('current full-domain result schema is required')
 
 ### `ensure_weak_asymmetry_result`
 
-[实现：第 423 行](../src/jhtdb_pipeline/weak_asymmetry.py#L423)
+[实现：第 361 行](../src/jhtdb_pipeline/weak_asymmetry.py#L361)
 
 ```python
 def ensure_weak_asymmetry_result(cfg: PipelineConfig, time_index: int, sigma_grid: float | None=None) -> Path

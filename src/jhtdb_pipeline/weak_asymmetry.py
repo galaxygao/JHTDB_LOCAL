@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,8 +13,10 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
-from .store import spatial_slices
-from .validation import atomic_json
+from .store import (
+    chunk_count, load_chained_report, report_metadata, report_summary, spatial_slices,
+)
+from .validation import atomic_json, update_report_metadata
 
 
 WEAK_ASYMMETRY_REPORT_VERSION = 2
@@ -74,18 +75,6 @@ class AbsPiPercentileAccumulator:
         percentile_99 = lower_value + fraction * (upper_value - lower_value)
         maximum = float(np.max(upper_tail))
         return float(percentile_99), maximum
-
-
-def _chunk_count(shape: tuple[int, ...], chunks: tuple[int, ...]) -> int:
-    return int(
-        np.prod(
-            [
-                (size + chunk - 1) // chunk
-                for size, chunk in zip(shape, chunks)
-            ],
-            dtype=np.int64,
-        )
-    )
 
 
 def build_weak_asymmetry_report(
@@ -236,7 +225,7 @@ def compute_weak_asymmetry(
     ) as progress:
         task = progress.add_task(
             "full-domain weak asymmetry",
-            total=_chunk_count(expected, chunks),
+            total=chunk_count(expected, chunks),
         )
         for key in spatial_slices(expected, chunks):
             values = np.asarray(pi[key], dtype=np.float32)
@@ -307,44 +296,8 @@ def write_weak_asymmetry_artifacts(
     return report_hash
 
 
-def _file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _load_chained_report(result_dir: Path, root: Any) -> dict[str, Any] | None:
-    report_path = result_dir / "weak_asymmetry.json"
-    manifest_path = result_dir / "manifest.json"
-    complete_path = result_dir / "COMPLETE"
-    if not all(
-        path.is_file()
-        for path in (
-            report_path,
-            result_dir / "weak_asymmetry.html",
-            manifest_path,
-            complete_path,
-        )
-    ):
-        return None
-    try:
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        complete = json.loads(complete_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    report_hash = _file_hash(report_path)
-    manifest_hash = _file_hash(manifest_path)
-    report_version = report.get("report_version")
-    valid = (
-        report_version == WEAK_ASYMMETRY_REPORT_VERSION
-        and report.get("scope") == "full_domain"
-        and manifest.get("weak_asymmetry_report_version") == report_version
-        and manifest.get("weak_asymmetry_report_hash") == report_hash
-        and root.attrs.get("weak_asymmetry_report_version") == report_version
-        and root.attrs.get("weak_asymmetry_report_hash") == report_hash
-        and root.attrs.get("manifest_hash") == manifest_hash
-        and complete.get("manifest_hash") == manifest_hash
-    )
-    return report if valid else None
+    return load_chained_report(result_dir, root, "weak_asymmetry", WEAK_ASYMMETRY_REPORT_VERSION)
 
 
 def weak_asymmetry_report_is_current(result_dir: Path, root: Any) -> bool:
@@ -360,42 +313,27 @@ def weak_asymmetry_report_is_current(result_dir: Path, root: Any) -> bool:
     )
 
 
+def weak_asymmetry_summary(report: dict[str, Any], report_hash: str) -> dict[str, Any]:
+    """QA summary with the shared global ratios and closure fields."""
+    return report_summary(
+        report, report_hash,
+        **{name: report["global"][name]
+           for name in ("asymmetry_index", "ratio_p99", "ratio_max")},
+        closure=report["closure"],
+    )
+
+
 def _persist_weak_asymmetry(
     result_dir: Path, root: Any, report: dict[str, Any]
 ) -> None:
     report_hash = write_weak_asymmetry_artifacts(result_dir, report)
     qa_path = result_dir / "qa.json"
     qa = json.loads(qa_path.read_text(encoding="utf-8"))
-    qa["weak_asymmetry"] = {
-        "passed": report["passed"],
-        "scope": report["scope"],
-        "report_version": report["report_version"],
-        "report_hash": report_hash,
-        "asymmetry_index": report["global"]["asymmetry_index"],
-        "ratio_p99": report["global"]["ratio_p99"],
-        "ratio_max": report["global"]["ratio_max"],
-        "closure": report["closure"],
-    }
+    qa["weak_asymmetry"] = weak_asymmetry_summary(report, report_hash)
     atomic_json(qa_path, qa)
-    manifest_path = result_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest.update(
-        {
-            "weak_asymmetry_passed": report["passed"],
-            "weak_asymmetry_report_version": report["report_version"],
-            "weak_asymmetry_report_hash": report_hash,
-        }
+    update_report_metadata(
+        result_dir, root, report_metadata("weak_asymmetry", report, report_hash)
     )
-    manifest_hash = atomic_json(manifest_path, manifest)
-    root.attrs.update(
-        {
-            "weak_asymmetry_passed": report["passed"],
-            "weak_asymmetry_report_version": report["report_version"],
-            "weak_asymmetry_report_hash": report_hash,
-            "manifest_hash": manifest_hash,
-        }
-    )
-    atomic_json(result_dir / "COMPLETE", {"manifest_hash": manifest_hash})
 
 
 def run_weak_asymmetry(

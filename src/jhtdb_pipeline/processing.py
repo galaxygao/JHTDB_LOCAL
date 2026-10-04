@@ -6,7 +6,7 @@ import shutil
 
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 import zarr
@@ -31,18 +31,23 @@ from .physics import (
     full_spectrum,
     regime_codes_from_thresholds,
     memmap,
+    spatial_slabs,
     subtract_product,
     zero_field,
 )
 from .store import (
+    chunk_count,
+    spatial_slices,
     create_result_group,
     create_shared_gradient_group,
-    hash_zarr_array,
+    array_metadata,
     open_complete_result,
+    report_metadata,
+    report_summary,
 )
 from .sbar_qa import compute_sbar_qa, ensure_sbar_result, write_sbar_artifacts
 from .validation import atomic_json, input_manifest_hash
-from .weak_asymmetry import write_weak_asymmetry_artifacts
+from .weak_asymmetry import weak_asymmetry_summary, write_weak_asymmetry_artifacts
 
 
 RESULT_FIELDS = {
@@ -110,46 +115,19 @@ def _filter_with_optional_spectrum(
                     close_memmap(cached)
         return
     if cfg.filter_type == "smooth_sharp":
-        if spectra is not None and key in spectra:
-            filter_smooth_sharp_from_spectrum(
-                spectra[key],
-                destination,
-                sigma,
-                cfg.domain_length,
-                cfg.sharp_edge_width_fraction,
-                cfg.fft_slab_width,
-                workers=cfg.fft_workers,
-            )
-        else:
-            filter_smooth_sharp_field(
-                source,
-                destination,
-                sigma,
-                cfg.domain_length,
-                cfg.sharp_edge_width_fraction,
-                cfg.fft_slab_width,
-                workers=cfg.fft_workers,
-            )
-        return
-    if spectra is not None and key in spectra:
-        filter_field_from_axis2_spectrum(
-            spectra[key],
-            destination,
-            temp_a,
-            temp_b,
-            sigma,
-            cfg.fft_slab_width,
-            workers=cfg.fft_workers,
+        cached = spectra is not None and key in spectra
+        operation = filter_smooth_sharp_from_spectrum if cached else filter_smooth_sharp_field
+        operation(
+            spectra[key] if cached else source, destination, sigma,
+            cfg.domain_length, cfg.sharp_edge_width_fraction,
+            cfg.fft_slab_width, workers=cfg.fft_workers,
         )
         return
-    filter_field(
-        source,
-        destination,
-        temp_a,
-        temp_b,
-        sigma,
-        cfg.fft_slab_width,
-        workers=cfg.fft_workers,
+    cached = spectra is not None and key in spectra
+    operation = filter_field_from_axis2_spectrum if cached else filter_field
+    operation(
+        spectra[key] if cached else source, destination, temp_a, temp_b,
+        sigma, cfg.fft_slab_width, workers=cfg.fft_workers,
     )
 
 
@@ -182,9 +160,9 @@ def _complete_result_is_current(
             and root.attrs.get("input_manifest_hash") == input_manifest_hash(cfg, int(root.attrs["time_index"]))
             and
             tuple(root["velocity"].shape) == (3, *cfg.full_shape_zyx)
-            and tuple(root["gradient"].shape) == (3, 3, *cfg.full_shape_zyx)
-            and tuple(root["velocity_bar"].shape) == (3, *cfg.full_shape_zyx)
-            and tuple(root["gradient_bar"].shape) == (3, 3, *cfg.full_shape_zyx)
+            and tuple(root["gradient"].shape) == (3, 3, *cfg.stored_shape_zyx("gradient"))
+            and tuple(root["velocity_bar"].shape) == (3, *cfg.stored_shape_zyx("velocity_bar"))
+            and tuple(root["gradient_bar"].shape) == (3, 3, *cfg.stored_shape_zyx("gradient_bar"))
             and all(
                 tuple(root[name].shape) == cfg.full_shape_zyx
                 for name in ("work_full", "work_resolved", "pi", "s_bar", "regime")
@@ -200,7 +178,7 @@ def _shared_result_is_current(
     directory = cfg.shared_result_path(time_index)
     manifest_path = directory / "shared_manifest.json"
     complete_path = directory / "COMPLETE"
-    store_path = directory / "full_raw.zarr"
+    store_path = cfg.shared_gradient_store_path(time_index)
     if not manifest_path.is_file() or not complete_path.is_file() or not store_path.is_dir():
         return False
     try:
@@ -212,8 +190,10 @@ def _shared_result_is_current(
             and manifest.get("input_manifest_hash") == manifest_hash
             and root.attrs.get("status") == "complete"
             and root.attrs.get("input_manifest_hash") == manifest_hash
+            and manifest.get("field_sampling") == {"gradient": cfg.field_sampling["gradient"]}
+            and root.attrs.get("field_sampling") == manifest["field_sampling"]
             and tuple(root["gradient"].shape)
-            == (3, 3, *cfg.full_shape_zyx)
+            == (3, 3, *cfg.stored_shape_zyx("gradient"))
             and np.dtype(root["gradient"].dtype) == np.dtype("<f4")
         )
     except Exception:
@@ -244,7 +224,8 @@ def _finalize_shared_gradient(
     root: Any,
 ) -> Path:
     gradient = root["gradient"]
-    digest, byte_count, minimum, maximum = hash_zarr_array(gradient)
+    gradient_metadata = array_metadata(gradient)
+    digest = gradient_metadata["sha256"]
     staging = cfg.shared_staging_result_path(time_index)
     final = cfg.shared_result_path(time_index)
     manifest = {
@@ -255,17 +236,8 @@ def _finalize_shared_gradient(
         "physical_time": cfg.physical_time(time_index),
         "input_manifest_hash": manifest_hash,
         "full_shape_xyz": list(cfg.grid_shape),
-        "fields": {
-            "gradient": {
-                "shape": list(gradient.shape),
-                "dtype": str(np.dtype(gradient.dtype)),
-                "chunks": list(gradient.chunks),
-                "sha256": digest,
-                "byte_count": byte_count,
-                "minimum": minimum,
-                "maximum": maximum,
-            }
-        },
+        "field_sampling": {"gradient": cfg.field_sampling["gradient"]},
+        "fields": {"gradient": gradient_metadata},
     }
     manifest_digest = atomic_json(staging / "shared_manifest.json", manifest)
     root.attrs.update(
@@ -313,33 +285,24 @@ def _safe_rmtree(path: Path, required_parent: Path) -> None:
         shutil.rmtree(path)
 
 
-def _spatial_keys(shape: tuple[int, int, int], chunks: tuple[int, int, int]) -> Iterator[tuple[slice, slice, slice]]:
-    for z0 in range(0, shape[0], chunks[0]):
-        for y0 in range(0, shape[1], chunks[1]):
-            for x0 in range(0, shape[2], chunks[2]):
-                yield (
-                    slice(z0, min(z0 + chunks[0], shape[0])),
-                    slice(y0, min(y0 + chunks[1], shape[1])),
-                    slice(x0, min(x0 + chunks[2], shape[2])),
-                )
-
-
-def _copy_field(
+def _copy_sampled_field(
     cfg: PipelineConfig,
     source: Any,
     destination: Any,
     prefix: tuple[int, ...] = (),
 ) -> None:
-    shape = cfg.full_shape_zyx
+    """Store original grid points 0,2,4,... along each spatial axis."""
+    shape = cfg.stored_shape_zyx("gradient")
     chunks = tuple(int(value) for value in destination.chunks[-3:])
-    for relative in _spatial_keys(shape, chunks):
-        values = np.ascontiguousarray(source[relative], dtype="<f4")
+    for relative in spatial_slices(shape, chunks):
+        source_key = tuple(slice(2 * key.start, 2 * key.stop, 2) for key in relative)
+        values = np.ascontiguousarray(source[source_key], dtype="<f4")
         if not np.all(np.isfinite(values)):
-            raise ValueError("full field contains NaN or Inf")
+            raise ValueError("sampled field contains NaN or Inf")
         destination[prefix + relative] = values
         readback = np.asarray(destination[prefix + relative], dtype="<f4")
         if not np.array_equal(values, readback):
-            raise IOError("persistent full field failed write/read verification")
+            raise IOError("persistent sampled field failed write/read verification")
 
     release_pages(source)
 
@@ -347,46 +310,30 @@ def _copy_field(
 def _zero_zarr(array: Any) -> None:
     shape = tuple(int(value) for value in array.shape)
     chunks = tuple(int(value) for value in array.chunks)
-    for key in _spatial_keys(shape, chunks):
+    for key in spatial_slices(shape, chunks):
         array[key] = np.zeros(tuple(item.stop - item.start for item in key), dtype=array.dtype)
 
 
 def _accumulate_zarr(destination: Any, source: Any) -> None:
     shape = tuple(int(value) for value in destination.shape)
     chunks = tuple(int(value) for value in destination.chunks)
-    for key in _spatial_keys(shape, chunks):
+    for key in spatial_slices(shape, chunks):
         current = np.asarray(destination[key], dtype=np.float32)
         values = np.asarray(source[key], dtype=np.float32)
         destination[key] = current + values
 
 
 def _accumulate_zarr_product(destination: Any, left: Any, right: Any) -> None:
-    shape = tuple(int(value) for value in destination.shape)
-    chunks = tuple(int(value) for value in destination.chunks)
-    for key in _spatial_keys(shape, chunks):
-        current = np.asarray(destination[key], dtype=np.float32)
-        left_values = np.asarray(left[key], dtype=np.float32)
-        right_values = np.asarray(right[key], dtype=np.float32)
-        destination[key] = current + left_values * right_values
+    _accumulate_zarr(destination, ProductView(left, right))
 
 
 def _copy_full(destination: Any, source: Any, slab: int) -> None:
-    for start in range(0, destination.shape[0], slab):
-        key = (
-            slice(start, min(start + slab, destination.shape[0])),
-            slice(None),
-            slice(None),
-        )
+    for key in spatial_slabs(destination.shape, slab):
         destination[key] = np.asarray(source[key], dtype=np.float32)
 
 
 def _accumulate_full(destination: Any, source: Any, slab: int) -> None:
-    for start in range(0, destination.shape[0], slab):
-        key = (
-            slice(start, min(start + slab, destination.shape[0])),
-            slice(None),
-            slice(None),
-        )
+    for key in spatial_slabs(destination.shape, slab):
         destination[key] = np.asarray(
             destination[key], dtype=np.float32
         ) + np.asarray(source[key], dtype=np.float32)
@@ -396,11 +343,8 @@ def _field_statistics(field: Any, slab: int) -> tuple[float, float, int]:
     sumsq = 0.0
     maximum = 0.0
     count = 0
-    for start in range(0, field.shape[0], slab):
-        values = np.asarray(
-            field[start : min(start + slab, field.shape[0]), :, :],
-            dtype=np.float32,
-        )
+    for key in spatial_slabs(field.shape, slab):
+        values = np.asarray(field[key], dtype=np.float32)
         if not np.all(np.isfinite(values)):
             raise ValueError("spectral workspace contains NaN or Inf")
         sumsq += float(np.square(values, dtype=np.float64).sum())
@@ -490,15 +434,6 @@ def _write_full_regime(
     ):
         raise RuntimeError("full-domain regime inputs and output must share the full shape")
     chunks = tuple(int(value) for value in regime.chunks)
-    chunk_count = int(
-        np.prod(
-            [
-                (size + chunk - 1) // chunk
-                for size, chunk in zip(expected, chunks)
-            ],
-            dtype=np.int64,
-        )
-    )
     full_sumsq = 0.0
     resolved_sumsq = 0.0
     point_count = 0
@@ -511,8 +446,8 @@ def _write_full_regime(
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("full-domain regime", total=2 * chunk_count)
-        for key in _spatial_keys(expected, chunks):
+        task = progress.add_task("full-domain regime", total=2 * chunk_count(expected, chunks))
+        for key in spatial_slices(expected, chunks):
             full = np.asarray(work_full[key], dtype=np.float32)
             resolved = np.asarray(work_resolved[key], dtype=np.float32)
             if not np.all(np.isfinite(full)) or not np.all(np.isfinite(resolved)):
@@ -530,7 +465,7 @@ def _write_full_regime(
             cfg.epsilon_rel * float(np.sqrt(resolved_sumsq / point_count)),
         )
         occupancy = np.zeros(7, dtype=np.int64)
-        for key in _spatial_keys(expected, chunks):
+        for key in spatial_slices(expected, chunks):
             full = np.asarray(work_full[key], dtype=np.float32)
             resolved = np.asarray(work_resolved[key], dtype=np.float32)
             codes = regime_codes_from_thresholds(
@@ -638,7 +573,7 @@ def _preflight_batch_space(cfg: PipelineConfig, time_index: int, count: int) -> 
     scratch = 10 * points * 4
     if cfg.fft_cache_mode == "memmap":
         # Gradients, twelve reusable spectra, acceleration and two FFT temporaries.
-        scratch += cfg.shared_gradient_uncompressed_bytes + 14 * spectrum_bytes + points * 4
+        scratch += 9 * points * 4 + 14 * spectrum_bytes + points * 4
     output_reserve = int(cfg.persistent_safety_reserve_gib * 1024**3)
     scratch_reserve = int(cfg.scratch_safety_reserve_gib * 1024**3)
     if cfg.result_root.stat().st_dev == run.stat().st_dev:
@@ -735,7 +670,7 @@ def process_full(
         {
             "input_manifest_hash": manifest_hash,
             "result_schema_version": RESULT_SCHEMA_VERSION,
-            "algorithm": f"full_periodic_{cfg.filter_type}_spectral_pi_sbar_regime_v7",
+            "algorithm": f"full_periodic_{cfg.filter_type}_spectral_pi_sbar_regime_v8",
             "filter_type": cfg.filter_type,
             "filter_cutoff_definition": (
                 None
@@ -792,7 +727,7 @@ def process_full(
                     ("velocity", component),
                 )
             filtered_velocity.flush()
-            _copy_field(
+            _copy_sampled_field(
                 cfg,
                 ComponentView(filtered_velocity, component),
                 result["velocity_bar"],
@@ -840,7 +775,7 @@ def process_full(
                         component, derivative_component
                     ]
                 if write_shared_gradient:
-                    _copy_field(
+                    _copy_sampled_field(
                         cfg,
                         raw_derivative,
                         shared_root["gradient"],
@@ -889,7 +824,7 @@ def process_full(
                     workers=cfg.fft_workers,
                 )
                 derivative.flush()
-                _copy_field(
+                _copy_sampled_field(
                     cfg,
                     derivative,
                     result["gradient_bar"],
@@ -1022,18 +957,7 @@ def process_full(
                 raw_diagonal = derivative
             else:
                 raw_diagonal = _raw_gradients[component, component]
-            for start in range(0, acceleration.shape[0], cfg.fft_slab_width):
-                key = (
-                    slice(
-                        start,
-                        min(start + cfg.fft_slab_width, acceleration.shape[0]),
-                    ),
-                    slice(None),
-                    slice(None),
-                )
-                acceleration[key] = np.asarray(acceleration[key]) + np.asarray(
-                    raw_diagonal[key]
-                )
+            _accumulate_full(acceleration, raw_diagonal, cfg.fft_slab_width)
             progress.advance(task)
 
     if write_shared_gradient:
@@ -1132,13 +1056,9 @@ def process_full(
         "input_manifest_hash": manifest_hash,
         "divergence": divergence_report,
         "decomposition": decomposition_report,
-        "s_bar_global": {
-            "passed": s_bar_report["passed"],
-            "scope": s_bar_report["scope"],
-            "report_version": s_bar_report["report_version"],
-            "report_hash": s_bar_report_hash,
-            "metrics": s_bar_report["metrics"],
-        },
+        "s_bar_global": report_summary(
+            s_bar_report, s_bar_report_hash, metrics=s_bar_report["metrics"]
+        ),
         "reuse": {
             "velocity_cache": True,
             "filtered_velocity": reused_filtered_velocity,
@@ -1150,23 +1070,10 @@ def process_full(
         "regime_scope": regime_report["scope"],
         "regime_point_count": regime_report["point_count"],
         "occupancy": regime_report["occupancy"],
-        "cq": {
-            "passed": cq_report["passed"],
-            "scope": cq_report["scope"],
-            "report_version": cq_report["report_version"],
-            "report_hash": cq_report_hash,
-            "partition_check": cq_report["partition_check"],
-        },
-        "weak_asymmetry": {
-            "passed": weak_report["passed"],
-            "scope": weak_report["scope"],
-            "report_version": weak_report["report_version"],
-            "report_hash": weak_report_hash,
-            "asymmetry_index": weak_report["global"]["asymmetry_index"],
-            "ratio_p99": weak_report["global"]["ratio_p99"],
-            "ratio_max": weak_report["global"]["ratio_max"],
-            "closure": weak_report["closure"],
-        },
+        "cq": report_summary(
+            cq_report, cq_report_hash, partition_check=cq_report["partition_check"]
+        ),
+        "weak_asymmetry": weak_asymmetry_summary(weak_report, weak_report_hash),
     }
     atomic_json(staging / "qa.json", qa)
     result.attrs.update(
@@ -1176,16 +1083,10 @@ def process_full(
             "epsilon_resolved": regime_report["epsilon_resolved"],
             "occupancy": qa["occupancy"],
             "regime_scope": regime_report["scope"],
-            "cq_passed": cq_report["passed"],
-            "cq_report_version": cq_report["report_version"],
-            "cq_report_hash": cq_report_hash,
-            "weak_asymmetry_passed": weak_report["passed"],
-            "weak_asymmetry_report_version": weak_report["report_version"],
-            "weak_asymmetry_report_hash": weak_report_hash,
+            **report_metadata("cq", cq_report, cq_report_hash),
+            **report_metadata("weak_asymmetry", weak_report, weak_report_hash),
             "decomposition": decomposition_report,
-            "s_bar_qa_passed": s_bar_report["passed"],
-            "s_bar_qa_report_version": s_bar_report["report_version"],
-            "s_bar_qa_report_hash": s_bar_report_hash,
+            **report_metadata("s_bar_qa", s_bar_report, s_bar_report_hash),
             "reused_filtered_velocity": reused_filtered_velocity,
         }
     )
@@ -1209,36 +1110,17 @@ def finalize_result(
     if root.attrs.get("status") != "processed":
         raise RuntimeError("persistent result staging has not completed processing")
 
-    expected_shapes = {
-        "velocity": (3, *cfg.full_shape_zyx),
-        "gradient": (3, 3, *cfg.full_shape_zyx),
-        "velocity_bar": (3, *cfg.full_shape_zyx),
-        "gradient_bar": (3, 3, *cfg.full_shape_zyx),
-        "work_full": cfg.full_shape_zyx,
-        "work_resolved": cfg.full_shape_zyx,
-        "pi": cfg.full_shape_zyx,
-        "s_bar": cfg.full_shape_zyx,
-        "regime": cfg.full_shape_zyx,
-    }
     fields: dict[str, Any] = {}
     for name, (dtype, rank) in RESULT_FIELDS.items():
         if name not in root:
             raise RuntimeError(f"result field is missing: {name}")
         array = root[name]
-        if len(array.shape) != rank or tuple(array.shape) != expected_shapes[name]:
+        expected_shape = (3,) * (rank - 3) + cfg.stored_shape_zyx(name)
+        if len(array.shape) != rank or tuple(array.shape) != expected_shape:
             raise RuntimeError(f"result field has invalid shape: {name}={array.shape}")
         if np.dtype(array.dtype) != np.dtype(dtype):
             raise RuntimeError(f"result field has invalid dtype: {name}={array.dtype}")
-        digest, byte_count, minimum, maximum = hash_zarr_array(array)
-        fields[name] = {
-            "shape": list(array.shape),
-            "dtype": str(np.dtype(array.dtype)),
-            "chunks": list(array.chunks),
-            "sha256": digest,
-            "byte_count": byte_count,
-            "minimum": minimum,
-            "maximum": maximum,
-        }
+        fields[name] = array_metadata(array)
 
     manifest = {
         "schema_version": RESULT_SCHEMA_VERSION,
@@ -1255,6 +1137,7 @@ def finalize_result(
 
         "full_shape_xyz": list(cfg.grid_shape),
         "field_scopes": dict(root.attrs.get("field_scopes", {})),
+        "field_sampling": cfg.field_sampling,
         "s_bar_qa_passed": bool(root.attrs.get("s_bar_qa_passed", False)),
         "s_bar_qa_report_version": root.attrs.get("s_bar_qa_report_version"),
         "s_bar_qa_report_hash": root.attrs.get("s_bar_qa_report_hash"),

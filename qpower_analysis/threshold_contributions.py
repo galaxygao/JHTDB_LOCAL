@@ -5,8 +5,11 @@ import csv
 import json
 from pathlib import Path
 import numpy as np
-import zarr
 from jhtdb_pipeline.store import spatial_slices
+if __package__:
+    from .conditional_tails import validated_fields
+else:
+    from conditional_tails import validated_fields
 
 
 def histograms(q, u2, q_rms, u2_mean, alphas, betas):
@@ -41,15 +44,10 @@ def run(folder):
     rows, totals = [], []
     for frame in config['frames']:
         number = int(frame['frame'])
-        velocity_root = zarr.open_group(frame['velocity_path'],mode='r')
-        gradient_root = zarr.open_group(frame['pressure_gradient_path'],mode='r')
-        for root in (velocity_root, gradient_root):
-            if root.attrs.get('status') != 'validated' or root.attrs.get('time_index') != number or root.attrs.get('physical_time') != frame['time']:
-                raise ValueError('Input must be a validated matching frame')
-        velocity = velocity_root[frame.get('velocity_key','velocity')]
-        gradient = gradient_root[frame['pressure_gradient_keys'][0]]
-        if velocity.shape != gradient.shape:
-            raise ValueError('Input shapes differ')
+        velocity, gradient = validated_fields(
+            frame, frame.get('velocity_key','velocity'),
+            metadata_error='Input must be a validated matching frame',
+        )
         summary = summaries[number]
         qr, um = float(summary['q_rms']), float(summary['u2_mean'])
         accumulated = {}

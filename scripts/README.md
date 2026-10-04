@@ -61,15 +61,17 @@ powershell -ExecutionPolicy Bypass -File scripts\bootstrap_local.ps1
 ## macOS 主计算（10 核 / 24 GB）
 
 `bash scripts/run_main_macos.sh` 使用 `configs/pipeline.macos.yaml`，一次调用 `process-batch`，
-按配置执行五个 sigma，完整保存所有场，使用磁盘共享梯度和 FFT 缓存。输出直接显示在终端。
+按配置执行五个 sigma，向量场每轴步长 2 保存，标量场完整保存，使用磁盘共享梯度和 FFT 缓存。输出直接显示在终端。
 脚本不运行 block statistics、QPower 或其他子项目。输入应先完成 cache 和 validate-input。
 通过 `JHTDB_MAIN_CONFIG=/绝对路径/config.yaml` 可选择另一配置。
+第一个参数指定时间帧，例如 `bash scripts/run_main_macos.sh 500` 计算第 500 帧；
+不传参数时默认第 1 帧。前面的 cache、validate-input 和后面的 compute-regime-pi 必须使用同一帧号。
 
 ## 通用维护与独立分析入口
 
-- `python scripts/rebuild_v7.py --help`：v6/v7 来源重建到独立 v7 根目录，默认只打印计划。[格式与更新流程](../docs/data_versions.md)。
+- `python scripts/rebuild_result.py --help`：v7/v8 来源重建到独立 v8 根目录，默认只打印计划。[格式与重建流程](../docs/data_versions.md)。
 - `python scripts/update_docs.py` / `--check`：生成函数/参数参考并校验文档链接。
-- QPower 两个辅助脚本已移到 [qpower_analysis/scripts](../qpower_analysis/scripts)，说明见 [QPower README](../qpower_analysis/README.md)。
+- QPower 下载辅助脚本位于 [qpower_analysis/scripts](../qpower_analysis/scripts)，说明见 [QPower README](../qpower_analysis/README.md)。
 - `download_pressure_mac.sh`：独立服务端梯度下载，见 [对应说明](../docs/mac_download_transfer.md)；不是 deploy 本地 FD4 流程。
 - `run_stage.ps1` 的 `-WithPressureGradient`、`run_smooth_sharp_full_pipeline.ps1` 的同名开关调用服务端梯度入口。
 

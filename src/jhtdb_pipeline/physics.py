@@ -44,6 +44,23 @@ def spectral_gaussian(
     return result
 
 
+def sign_regime_masks(full: np.ndarray, resolved: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Six Cq regions; exact zero is nonnegative, with no uncertain band."""
+    full_negative = full < 0.0
+    resolved_negative = resolved < 0.0
+    q1 = ~full_negative & ~resolved_negative
+    q4 = full_negative & resolved_negative
+    delta_nonnegative = (full - resolved) >= 0.0
+    return (
+        q1 & delta_nonnegative,
+        q1 & ~delta_nonnegative,
+        ~full_negative & resolved_negative,
+        full_negative & ~resolved_negative,
+        q4 & delta_nonnegative,
+        q4 & ~delta_nonnegative,
+    )
+
+
 def regime_codes(
     work_full: np.ndarray,
     work_resolved: np.ndarray,
@@ -68,7 +85,7 @@ def regime_codes_from_thresholds(
     epsilon_full: float,
     epsilon_resolved: float,
 ) -> np.ndarray:
-    """Return v6 codes: uncertain, 1+, 1-, 2, 3, 4+, 4-."""
+    """Return regime codes: uncertain, 1+, 1-, 2, 3, 4+, 4-."""
     work_full = np.asarray(work_full)
     work_resolved = np.asarray(work_resolved)
     if work_full.shape != work_resolved.shape:
@@ -122,12 +139,19 @@ class ProductView:
         )
 
 
+def spatial_slabs(
+    shape: tuple[int, int, int], slab: int
+) -> Iterator[tuple[slice, slice, slice]]:
+    """Iterate z slabs in a z/y/x field, including any partial final slab."""
+    for start in range(0, shape[0], slab):
+        yield slice(start, min(start + slab, shape[0])), slice(None), slice(None)
+
+
 def axis_batches(
     shape: tuple[int, int, int], axis: int, slab: int
 ) -> Iterator[tuple[slice, slice, slice]]:
     if axis in (1, 2):
-        for start in range(0, shape[0], slab):
-            yield slice(start, min(start + slab, shape[0])), slice(None), slice(None)
+        yield from spatial_slabs(shape, slab)
     elif axis == 0:
         for start in range(0, shape[1], slab):
             yield slice(None), slice(start, min(start + slab, shape[1])), slice(None)
@@ -377,8 +401,8 @@ def filter_field(
 
 
 def zero_field(field: Any, slab: int) -> None:
-    for start in range(0, field.shape[0], slab):
-        field[start : min(start + slab, field.shape[0]), :, :] = 0.0
+    for key in spatial_slabs(field.shape, slab):
+        field[key] = 0.0
 
     release_pages(field)
 
@@ -389,8 +413,7 @@ def accumulate_product(
     right: Any,
     slab: int,
 ) -> None:
-    for start in range(0, destination.shape[0], slab):
-        key = (slice(start, min(start + slab, destination.shape[0])), slice(None), slice(None))
+    for key in spatial_slabs(destination.shape, slab):
         values = np.asarray(destination[key], dtype=np.float32)
         values += np.asarray(left[key], dtype=np.float32) * np.asarray(
             right[key], dtype=np.float32
@@ -408,8 +431,7 @@ def subtract_product(
     right: Any,
     slab: int,
 ) -> None:
-    for start in range(0, destination.shape[0], slab):
-        key = (slice(start, min(start + slab, destination.shape[0])), slice(None), slice(None))
+    for key in spatial_slabs(destination.shape, slab):
         values = np.asarray(destination[key], dtype=np.float32)
         values -= np.asarray(left[key], dtype=np.float32) * np.asarray(
             right[key], dtype=np.float32
