@@ -169,3 +169,26 @@ STREAMLIT_SERVER_HEADLESS=true .venv-mac/bin/python -m jhtdb_pipeline gui \
 也不会自动改写已有数组的 compressor；当前配置仍为 3。
 结果记录位于 `.local/macos_main_run/compression_sample.json`。
 空间预检仍按未压缩容量，不能用这个样本比例代替全域容量检查。
+
+## 本机 t=0 数据已更新为 v8
+
+第 1 帧（物理时间 0）的五个 sigma 已从现有 v7 全点结果转换为 v8，
+共享原始梯度、滤波速度和滤波梯度逐块保留 `[::2,::2,::2]` 的原值，
+每块写入后读回比较。所有标量场通过同盘硬链接保留原文件字节，科学 QA 报告保持原样。
+转换更新了字段 hash、manifest、Zarr attrs、共享引用和 COMPLETE，并在每个结果中记录
+`storage_conversion.source_manifest_hash` 作为原始来源。五个结果的完整读取、QA 校验链和计算复用均通过。
+
+| 当前 v8 结果 | 实际占用 GiB |
+|---|---:|
+| sigma=10 | 18.900 |
+| sigma=15 | 18.326 |
+| sigma=30 | 17.349 |
+| sigma=55 | 16.571 |
+| sigma=75 | 16.211 |
+| 共享原始梯度 | 4.228 |
+| 合计，不含原始速度输入 | 91.585 |
+
+以上是 `du -sk` 测得的实际落盘空间，包含压缩数组及结果报告。
+对应 v7 结果原为 276.504 GiB，释放约 184.919 GiB。
+旧全点向量副本、旧共享梯度、转换 staging/备份及临时转换脚本、校验脚本和日志均已清理；
+另清理了此前遗留的第 1 帧不完整共享 staging。输入速度缓存和完整标量场保持有效。
