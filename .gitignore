@@ -1,4 +1,4 @@
-# Track source code, configuration and tests only.
+# Track source code, configuration, tests and Markdown documentation.
 *
 !*/
 !*.py
@@ -53,3 +53,6 @@ __pycache__/
 *.sqlite-wal
 *.partial
 configs/*.local.yaml
+
+# Keep Markdown documentation, including reports, under version control.
+!*.md
