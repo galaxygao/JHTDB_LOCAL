@@ -10,7 +10,6 @@ from scipy.special import erfc
 
 
 ARRAY_AXIS_FOR_DERIVATIVE = (2, 1, 0)  # derivative labels x,y,z for arrays z,y,x
-REGIME_LABELS = ("uncertain", "1+", "1-", "2", "3", "4+", "4-")
 
 
 def spectral_derivative(values: np.ndarray, axis: int, domain_length: float) -> np.ndarray:
@@ -42,68 +41,6 @@ def spectral_gaussian(
         spectrum *= transfer.reshape(shape)
         result = fft.irfft(spectrum, n=n, axis=axis, workers=workers).astype(np.float32)
     return result
-
-
-def sign_regime_masks(full: np.ndarray, resolved: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Six Cq regions; exact zero is nonnegative, with no uncertain band."""
-    full_negative = full < 0.0
-    resolved_negative = resolved < 0.0
-    q1 = ~full_negative & ~resolved_negative
-    q4 = full_negative & resolved_negative
-    delta_nonnegative = (full - resolved) >= 0.0
-    return (
-        q1 & delta_nonnegative,
-        q1 & ~delta_nonnegative,
-        ~full_negative & resolved_negative,
-        full_negative & ~resolved_negative,
-        q4 & delta_nonnegative,
-        q4 & ~delta_nonnegative,
-    )
-
-
-def regime_codes(
-    work_full: np.ndarray,
-    work_resolved: np.ndarray,
-    epsilon_abs: float,
-    epsilon_rel: float,
-) -> tuple[np.ndarray, float, float]:
-    full_rms = float(np.sqrt(np.mean(np.square(work_full, dtype=np.float64))))
-    resolved_rms = float(
-        np.sqrt(np.mean(np.square(work_resolved, dtype=np.float64)))
-    )
-    epsilon_full = max(epsilon_abs, epsilon_rel * full_rms)
-    epsilon_resolved = max(epsilon_abs, epsilon_rel * resolved_rms)
-    codes = regime_codes_from_thresholds(
-        work_full, work_resolved, epsilon_full, epsilon_resolved
-    )
-    return codes, epsilon_full, epsilon_resolved
-
-
-def regime_codes_from_thresholds(
-    work_full: np.ndarray,
-    work_resolved: np.ndarray,
-    epsilon_full: float,
-    epsilon_resolved: float,
-) -> np.ndarray:
-    """Return regime codes: uncertain, 1+, 1-, 2, 3, 4+, 4-."""
-    work_full = np.asarray(work_full)
-    work_resolved = np.asarray(work_resolved)
-    if work_full.shape != work_resolved.shape:
-        raise ValueError("work fields must have identical shapes")
-    codes = np.zeros(work_full.shape, dtype=np.uint8)
-    full_pos, full_neg = work_full > epsilon_full, work_full < -epsilon_full
-    res_pos = work_resolved > epsilon_resolved
-    res_neg = work_resolved < -epsilon_resolved
-    delta_nonnegative = (work_full - work_resolved) >= 0.0
-    q1 = full_pos & res_pos
-    q4 = full_neg & res_neg
-    codes[q1 & delta_nonnegative] = 1
-    codes[q1 & ~delta_nonnegative] = 2
-    codes[full_pos & res_neg] = 3
-    codes[full_neg & res_pos] = 4
-    codes[q4 & delta_nonnegative] = 5
-    codes[q4 & ~delta_nonnegative] = 6
-    return codes
 
 
 class ComponentView:

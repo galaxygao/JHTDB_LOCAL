@@ -14,7 +14,6 @@ import zarr
 
 from jhtdb_pipeline.catalog import Catalog
 from jhtdb_pipeline.config import load_config, result_zarr_name
-from jhtdb_pipeline.cq import ensure_cq_result
 from jhtdb_pipeline.physics import axis2_spectrum as physics_axis2_spectrum
 from jhtdb_pipeline.physics import full_spectrum as physics_full_spectrum
 from jhtdb_pipeline.physics import spectral_derivative, spectral_gaussian
@@ -154,7 +153,7 @@ class ProcessingTests(unittest.TestCase):
             process_full(cfg, 1, 2.0)
             final = finalize_result(cfg, 1, 2.0)
             self.assertEqual(
-                final.name, "t000001_filter_smooth_sharp_a0p125kc_sigma_2"
+                final.name, "t000001_filter_smooth_sharp_a0p125kc_sigma_2_v9"
             )
             result = open_complete_result(final)
             self.assertEqual(result.attrs["filter_type"], "smooth_sharp")
@@ -196,7 +195,6 @@ class ProcessingTests(unittest.TestCase):
                 qa = json.loads((path / "qa.json").read_text(encoding="utf-8"))
                 self.assertTrue(qa["reuse"]["raw_gradients"])
                 self.assertTrue(qa["reuse"]["first_axis_fft_spectra"])
-                self.assertEqual(open_complete_result(path)["regime"].dtype, np.dtype("u1"))
 
             normal_cfg, _ = fixture(root / "normal")
             process_full(normal_cfg, 1, 1.0)
@@ -205,7 +203,7 @@ class ProcessingTests(unittest.TestCase):
             normal_result = open_complete_result(normal_path)
             for name in (
                 "velocity_bar", "gradient_bar", "work_full", "work_resolved",
-                "pi", "s_bar", "regime",
+                "pi", "s_bar",
             ):
                 np.testing.assert_array_equal(batch_result[name][:], normal_result[name][:])
 
@@ -219,7 +217,7 @@ class ProcessingTests(unittest.TestCase):
                 sigma_grids=(1.0, 2.0, 3.0),
             )
             plan = resource_plan(batch_cfg)
-            expected_result_bytes = 8**3 * 12 * 4 + 16**3 * 17
+            expected_result_bytes = 8**3 * 12 * 4 + 16**3 * 16
             self.assertEqual(
                 plan["result_GiB"], expected_result_bytes / 1024**3
             )
@@ -241,8 +239,6 @@ class ProcessingTests(unittest.TestCase):
             self.assertTrue((final / "manifest.json").is_file())
             self.assertTrue((final / "s_bar_qa.json").is_file())
             self.assertTrue((final / "s_bar_global_totals.html").is_file())
-            self.assertTrue((final / "cq.json").is_file())
-            self.assertTrue((final / "cq.html").is_file())
             self.assertTrue((final / "weak_asymmetry.json").is_file())
             self.assertTrue((final / "weak_asymmetry.html").is_file())
             self.assertEqual(run_sbar_qa(cfg, 1)["scope"], "full_domain")
@@ -250,7 +246,6 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(result["velocity"].shape, (3, 16, 16, 16))
             self.assertEqual(result["gradient"].shape, (3, 3, 8, 8, 8))
             self.assertEqual(result["work_full"].shape, (16, 16, 16))
-            self.assertEqual(result["regime"].shape, (16, 16, 16))
             np.testing.assert_allclose(result["velocity"][0], velocity[0])
             expected_filtered = spectral_gaussian(velocity[0], cfg.sigma_grid)
             np.testing.assert_allclose(
@@ -309,12 +304,9 @@ class ProcessingTests(unittest.TestCase):
             self.assertFalse(cfg.workspace_path(1).exists())
             self.assertFalse(any(final.rglob("*.part-*")))
             manifest = json.loads((final / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["schema_version"], 8)
-            self.assertEqual(manifest["field_scopes"]["regime"], "full_domain")
+            self.assertEqual(manifest["schema_version"], 9)
             self.assertEqual(manifest["s_bar_qa_report_version"], 3)
             self.assertIn("s_bar_qa_report_hash", manifest)
-            self.assertTrue(manifest["cq_passed"])
-            self.assertIn("cq_report_hash", manifest)
             self.assertTrue(manifest["weak_asymmetry_passed"])
             self.assertIn("weak_asymmetry_report_hash", manifest)
             self.assertEqual(
@@ -325,7 +317,7 @@ class ProcessingTests(unittest.TestCase):
             )
             self.assertEqual(set(manifest["fields"]), {
                 "velocity_bar", "gradient_bar",
-                "work_full", "work_resolved", "pi", "s_bar", "regime",
+                "work_full", "work_resolved", "pi", "s_bar",
             })
             relaxed_cfg = replace(
                 cfg, energy_identity_relative_rms_max=5.0e-4
@@ -346,8 +338,6 @@ class ProcessingTests(unittest.TestCase):
             for name in (
                 "s_bar_qa.json",
                 "s_bar_global_totals.html",
-                "cq.json",
-                "cq.html",
                 "weak_asymmetry.json",
                 "weak_asymmetry.html",
             ):
@@ -359,8 +349,6 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(refreshed_s_bar["report_version"], 3)
             self.assertNotIn("s_bar_rel_self", refreshed_s_bar["metrics"])
             self.assertTrue((final / "s_bar_global_totals.html").is_file())
-            self.assertTrue((final / "cq.json").is_file())
-            self.assertTrue((final / "cq.html").is_file())
             self.assertTrue((final / "weak_asymmetry.json").is_file())
             self.assertTrue((final / "weak_asymmetry.html").is_file())
 
@@ -424,3 +412,60 @@ class ProcessingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_v9_result_omits_removed_analysis_and_preserves_legacy_namespace(tmp_path):
+    from jhtdb_pipeline.cli import _status
+
+    cfg, _ = fixture(tmp_path)
+    old_id = cfg.result_id(1).removesuffix('_v9')
+    old_result = cfg.result_root / old_id
+    old_result.mkdir(parents=True)
+    (old_result / 'COMPLETE').write_text('legacy-result')
+    old_shared = cfg.result_root / 't000001_shared_stride2'
+    old_shared.mkdir()
+    (old_shared / 'COMPLETE').write_text('legacy-shared')
+    old_batch = cfg.result_root / 't000001_filter_gaussian_batch_manifest.json'
+    old_batch.write_text('legacy-batch')
+
+    final = process_batch(cfg, 1)[0]
+    result = open_complete_result(final)
+    manifest = json.loads((final / 'manifest.json').read_text())
+    qa = json.loads((final / 'qa.json').read_text())
+    assert manifest['schema_version'] == 9
+    assert 'regime' not in result
+    assert 'regime' not in manifest['fields']
+    assert 'regime' not in manifest['field_sampling']
+    assert 'cq' not in qa
+    assert 'occupancy' not in qa
+    assert not (final / 'cq.json').exists()
+    assert not (final / 'cq.html').exists()
+    assert (old_result / 'COMPLETE').read_text() == 'legacy-result'
+    assert (old_shared / 'COMPLETE').read_text() == 'legacy-shared'
+    assert old_batch.read_text() == 'legacy-batch'
+    status = _status(cfg)
+    assert all('shared_stride2' not in item['result_id'] for item in status['results'])
+    assert any(item.get('status') == 'complete' for item in status['filter_batches'])
+
+
+def test_reader_accepts_legacy_v8_sampling_and_rejects_corruption(tmp_path):
+    import pytest
+
+    cfg, _ = fixture(tmp_path)
+    final = process_batch(cfg, 1)[0]
+    root = zarr.open_group(str(final / result_zarr_name(cfg.sigma_grid)), mode='a')
+    shared = zarr.open_group(str(cfg.shared_gradient_store_path(1)), mode='a')
+    manifest = json.loads((final / 'manifest.json').read_text())
+    sampling = dict(root.attrs['field_sampling'])
+    sampling['regime'] = {'origin_xyz': [0, 0, 0], 'stride_xyz': [1, 1, 1],
+                          'shape_xyz': list(cfg.grid_shape)}
+    root.attrs.update({'result_schema_version': 8, 'field_sampling': sampling})
+    shared.attrs['result_schema_version'] = 8
+    manifest.update({'schema_version': 8, 'field_sampling': sampling})
+    atomic_json(final / 'manifest.json', manifest)
+    assert open_complete_result(final)['gradient'].shape == (3, 3, 8, 8, 8)
+
+    sampling['gradient']['origin_xyz'] = [1, 1, 1]
+    root.attrs['field_sampling'] = sampling
+    with pytest.raises(RuntimeError, match='sampling metadata'):
+        open_complete_result(final)

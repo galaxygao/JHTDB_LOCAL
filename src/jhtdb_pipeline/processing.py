@@ -16,7 +16,6 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from .config import RESULT_SCHEMA_VERSION, PipelineConfig, result_zarr_name
 from .disk_fft import build_spectrum, filter_spectrum, mapped_array, release_pages
-from .cq import compute_cq, ensure_cq_result, write_cq_artifacts
 from .physics import (
     ComponentView,
     ProductView,
@@ -29,7 +28,6 @@ from .physics import (
     filter_smooth_sharp_field,
     filter_smooth_sharp_from_spectrum,
     full_spectrum,
-    regime_codes_from_thresholds,
     memmap,
     spatial_slabs,
     subtract_product,
@@ -47,7 +45,10 @@ from .store import (
 )
 from .sbar_qa import compute_sbar_qa, ensure_sbar_result, write_sbar_artifacts
 from .validation import atomic_json, input_manifest_hash
-from .weak_asymmetry import weak_asymmetry_summary, write_weak_asymmetry_artifacts
+from .weak_asymmetry import (
+    compute_weak_asymmetry, ensure_weak_asymmetry_result,
+    weak_asymmetry_summary, write_weak_asymmetry_artifacts,
+)
 
 
 RESULT_FIELDS = {
@@ -57,7 +58,6 @@ RESULT_FIELDS = {
     "work_resolved": ("<f4", 3),
     "pi": ("<f4", 3),
     "s_bar": ("<f4", 3),
-    "regime": ("u1", 3),
 }
 
 
@@ -165,7 +165,7 @@ def _complete_result_is_current(
             and tuple(root["gradient_bar"].shape) == (3, 3, *cfg.stored_shape_zyx("gradient_bar"))
             and all(
                 tuple(root[name].shape) == cfg.full_shape_zyx
-                for name in ("work_full", "work_resolved", "pi", "s_bar", "regime")
+                for name in ("work_full", "work_resolved", "pi", "s_bar")
             )
         )
     except Exception:
@@ -420,74 +420,6 @@ def _reusable_filtered_velocity(
     return None
 
 
-def _write_full_regime(
-    work_full: Any,
-    work_resolved: Any,
-    regime: Any,
-    cfg: PipelineConfig,
-) -> dict[str, Any]:
-    expected = cfg.full_shape_zyx
-    if (
-        tuple(work_full.shape) != expected
-        or tuple(work_resolved.shape) != expected
-        or tuple(regime.shape) != expected
-    ):
-        raise RuntimeError("full-domain regime inputs and output must share the full shape")
-    chunks = tuple(int(value) for value in regime.chunks)
-    full_sumsq = 0.0
-    resolved_sumsq = 0.0
-    point_count = 0
-    console = Console()
-    with Progress(
-        SpinnerColumn("line"),
-        TextColumn("{task.description}"),
-        BarColumn(),
-        "{task.completed}/{task.total}",
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("full-domain regime", total=2 * chunk_count(expected, chunks))
-        for key in spatial_slices(expected, chunks):
-            full = np.asarray(work_full[key], dtype=np.float32)
-            resolved = np.asarray(work_resolved[key], dtype=np.float32)
-            if not np.all(np.isfinite(full)) or not np.all(np.isfinite(resolved)):
-                raise ValueError("work fields contain NaN or Inf")
-            full_sumsq += float(np.square(full, dtype=np.float64).sum())
-            resolved_sumsq += float(np.square(resolved, dtype=np.float64).sum())
-            point_count += full.size
-            progress.advance(task)
-        epsilon_full = max(
-            cfg.epsilon_abs,
-            cfg.epsilon_rel * float(np.sqrt(full_sumsq / point_count)),
-        )
-        epsilon_resolved = max(
-            cfg.epsilon_abs,
-            cfg.epsilon_rel * float(np.sqrt(resolved_sumsq / point_count)),
-        )
-        occupancy = np.zeros(7, dtype=np.int64)
-        for key in spatial_slices(expected, chunks):
-            full = np.asarray(work_full[key], dtype=np.float32)
-            resolved = np.asarray(work_resolved[key], dtype=np.float32)
-            codes = regime_codes_from_thresholds(
-                full, resolved, epsilon_full, epsilon_resolved
-            )
-            regime[key] = codes
-            occupancy += np.bincount(codes.ravel(), minlength=7)
-            progress.advance(task)
-    labels = ("uncertain", "1+", "1-", "2", "3", "4+", "4-")
-    occupancy_fraction = {
-        label: float(value / point_count)
-        for label, value in zip(labels, occupancy)
-    }
-    return {
-        "scope": "full_domain",
-        "point_count": point_count,
-        "epsilon_full": float(epsilon_full),
-        "epsilon_resolved": float(epsilon_resolved),
-        "occupancy": occupancy_fraction,
-    }
-
-
 def resource_plan(cfg: PipelineConfig) -> dict[str, float | str]:
     full_points = int(np.prod(cfg.grid_shape, dtype=np.int64))
     scalar_bytes = full_points * 4
@@ -670,7 +602,7 @@ def process_full(
         {
             "input_manifest_hash": manifest_hash,
             "result_schema_version": RESULT_SCHEMA_VERSION,
-            "algorithm": f"full_periodic_{cfg.filter_type}_spectral_pi_sbar_regime_v8",
+            "algorithm": f"full_periodic_{cfg.filter_type}_spectral_pi_sbar_v9",
             "filter_type": cfg.filter_type,
             "filter_cutoff_definition": (
                 None
@@ -1039,12 +971,7 @@ def process_full(
         "residual_maximum_abs": identity_metric["maximum_abs"],
     }
 
-    regime_report = _write_full_regime(
-        result["work_full"], result["work_resolved"], result["regime"], cfg
-    )
-    cq_report = compute_cq(result, cfg)
-    cq_report_hash = write_cq_artifacts(staging, cq_report)
-    weak_report = cq_report["weak_asymmetry"]
+    weak_report = compute_weak_asymmetry(result, cfg)
     weak_report_hash = write_weak_asymmetry_artifacts(staging, weak_report)
 
     qa = {
@@ -1065,25 +992,12 @@ def process_full(
             "raw_gradients": _raw_gradients is not None,
             "first_axis_fft_spectra": _filter_spectra is not None,
         },
-        "epsilon_full": regime_report["epsilon_full"],
-        "epsilon_resolved": regime_report["epsilon_resolved"],
-        "regime_scope": regime_report["scope"],
-        "regime_point_count": regime_report["point_count"],
-        "occupancy": regime_report["occupancy"],
-        "cq": report_summary(
-            cq_report, cq_report_hash, partition_check=cq_report["partition_check"]
-        ),
         "weak_asymmetry": weak_asymmetry_summary(weak_report, weak_report_hash),
     }
     atomic_json(staging / "qa.json", qa)
     result.attrs.update(
         {
             "status": "processed",
-            "epsilon_full": regime_report["epsilon_full"],
-            "epsilon_resolved": regime_report["epsilon_resolved"],
-            "occupancy": qa["occupancy"],
-            "regime_scope": regime_report["scope"],
-            **report_metadata("cq", cq_report, cq_report_hash),
             **report_metadata("weak_asymmetry", weak_report, weak_report_hash),
             "decomposition": decomposition_report,
             **report_metadata("s_bar_qa", s_bar_report, s_bar_report_hash),
@@ -1141,9 +1055,6 @@ def finalize_result(
         "s_bar_qa_passed": bool(root.attrs.get("s_bar_qa_passed", False)),
         "s_bar_qa_report_version": root.attrs.get("s_bar_qa_report_version"),
         "s_bar_qa_report_hash": root.attrs.get("s_bar_qa_report_hash"),
-        "cq_passed": bool(root.attrs.get("cq_passed", False)),
-        "cq_report_version": root.attrs.get("cq_report_version"),
-        "cq_report_hash": root.attrs.get("cq_report_hash"),
         "weak_asymmetry_passed": bool(
             root.attrs.get("weak_asymmetry_passed", False)
         ),
@@ -1427,5 +1338,5 @@ def reuse_complete_result(cfg: PipelineConfig, time_index: int, sigma_grid: floa
     final = cfg.result_path(time_index, sigma)
     if _complete_result_is_current(cfg, final, sigma):
         ensure_sbar_result(cfg, time_index, sigma)
-        return ensure_cq_result(cfg, time_index, sigma)
+        return ensure_weak_asymmetry_result(cfg, time_index, sigma)
     return None

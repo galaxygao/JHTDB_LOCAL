@@ -16,7 +16,6 @@ from jhtdb_pipeline.physics import (
     filter_smooth_sharp_field,
     full_spectrum,
     memmap,
-    regime_codes,
     spectral_derivative,
     spectral_gaussian,
     smooth_sharp_radial_weights,
@@ -38,11 +37,6 @@ class PhysicsTests(unittest.TestCase):
             spectral_gaussian(field, 1.0), field, rtol=0, atol=1e-6
         )
 
-    def test_regime_codes(self) -> None:
-        full = np.asarray([3.0, 2.0, 2.0, -2.0, -2.0, -3.0, 0.0])
-        resolved = np.asarray([2.0, 3.0, -2.0, 2.0, -3.0, -2.0, 1.0])
-        codes, _, _ = regime_codes(full, resolved, 0.1, 0.0)
-        np.testing.assert_array_equal(codes, [1, 2, 3, 4, 5, 6, 0])
 
     def test_full_spectrum_matches_direct_three_dimensional_fft(self) -> None:
         rng = np.random.default_rng(14)
@@ -99,11 +93,6 @@ class PhysicsTests(unittest.TestCase):
             atol=3e-5,
         )
 
-    def test_zero_delta_is_assigned_to_plus_partition(self) -> None:
-        full = np.asarray([2.0, -2.0])
-        resolved = np.asarray([2.0, -2.0])
-        codes, _, _ = regime_codes(full, resolved, 0.1, 0.0)
-        np.testing.assert_array_equal(codes, [1, 5])
 
     def test_all_gradient_axes(self) -> None:
         self.assertEqual(ARRAY_AXIS_FOR_DERIVATIVE, (2, 1, 0))

@@ -136,7 +136,6 @@ def create_result_group(
                 "gradient": "full_domain_stride2",
                 "velocity_bar": "full_domain_stride2",
                 "gradient_bar": "full_domain_stride2",
-                "regime": "full_domain",
                 "work_full": "full_domain",
                 "work_resolved": "full_domain",
                 "pi": "full_domain",
@@ -159,10 +158,6 @@ def create_result_group(
             chunks=spatial_chunks,
             dtype="<f4", compressor=codec, fill_value=np.nan,
         )
-    root.require_dataset(
-        "regime", shape=full_shape, chunks=spatial_chunks,
-        dtype="u1", compressor=codec, fill_value=0,
-    )
     return root
 
 
@@ -346,7 +341,7 @@ def open_complete_result(path: Path):
     manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
     schema = manifest.get("schema_version")
     if schema not in READABLE_RESULT_SCHEMAS:
-        raise RuntimeError("result requires schema v7 or v8; rebuild from validated velocity")
+        raise RuntimeError("unsupported result schema; supported versions are v7, v8 and v9")
     root = zarr.open_group(str(path / result_zarr_name(float(manifest["sigma_grid"]))), mode="r")
     if root.attrs.get("status") != "complete" or root.attrs.get("result_schema_version") != schema:
         raise RuntimeError(f"result metadata is incomplete or outdated: {path}")
@@ -368,13 +363,19 @@ def open_complete_result(path: Path):
         raise RuntimeError("result and shared inputs have different or incomplete metadata")
     result = CompositeResult(root, {"velocity": raw_root["velocity"], "gradient": shared_root["gradient"]})
     sampling = field_sampling(manifest["full_shape_xyz"], schema)
-    if schema == 8 and (
-        manifest.get("field_sampling") != sampling
-        or root.attrs.get("field_sampling") != sampling
-        or shared_root.attrs.get("field_sampling") != {"gradient": sampling["gradient"]}
-    ):
-        raise RuntimeError("result sampling metadata does not match the original grid")
-    for name in ("velocity", "gradient", "velocity_bar", "gradient_bar", "work_full", "work_resolved", "pi", "s_bar", "regime"):
+    if schema >= 8:
+        manifest_sampling = manifest.get("field_sampling", {})
+        stored_sampling = root.attrs.get("field_sampling", {})
+        if (
+            any(manifest_sampling.get(name) != value for name, value in sampling.items())
+            or any(stored_sampling.get(name) != value for name, value in sampling.items())
+            or (schema == RESULT_SCHEMA_VERSION and (
+                manifest_sampling != sampling or stored_sampling != sampling
+            ))
+            or shared_root.attrs.get("field_sampling") != {"gradient": sampling["gradient"]}
+        ):
+            raise RuntimeError("result sampling metadata does not match the original grid")
+    for name in ("velocity", "gradient", "velocity_bar", "gradient_bar", "work_full", "work_resolved", "pi", "s_bar"):
         if name not in result:
             raise RuntimeError(f"result field is missing: {name}")
         prefix = (3, 3) if name in ("gradient", "gradient_bar") else (3,) if name in ("velocity", "velocity_bar") else ()

@@ -11,7 +11,10 @@ from pathlib import Path
 import numpy as np
 
 from jhtdb_pipeline.store import spatial_slices
-from qpower_analysis.conditional_tails import validated_fields, quantile_from_hist
+if __package__:
+    from .conditional_tails import validated_fields, quantile_from_hist
+else:
+    from conditional_tails import validated_fields, quantile_from_hist
 
 
 def run(folder: Path) -> None:

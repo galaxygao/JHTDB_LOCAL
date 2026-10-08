@@ -14,19 +14,13 @@ import yaml
 from streamlit.testing.v1 import AppTest
 
 from jhtdb_pipeline.dashboard import (
-    CQ_REGIME_ORDER,
-    _cq_figure,
     _continuous_figure,
-    _regime_figure,
-    _regime_pi_figure,
     _symmetric_color_limit,
     _symlog_transform,
     _weak_asymmetry_figure,
     _global_totals_figure,
     complete_result_paths,
     result_selection_catalog,
-    regime_pi_rows,
-    cq_rows,
     energy_identity_residual,
     extract_gradient_slice,
     extract_scalar_slice,
@@ -120,59 +114,6 @@ class DashboardTests(unittest.TestCase):
         figure = _global_totals_figure(report)
         self.assertEqual(list(figure.data[0].y), [1.0, 2.0, 3.0, 4.0])
 
-    def test_cq_figure_and_rows_keep_six_regime_order(self) -> None:
-        field_names = ("pi", "s_bar", "work_full", "work_resolved", "delta_w")
-        report = {
-            "regimes": {
-                name: {
-                    "volume_fraction": index / 10.0,
-                    "count": index,
-                    "stored_cq": float(index),
-                    "les_forward_cq": float(-index),
-                    "stored_conditional_mean_pi": float(index + 10),
-                    "fields": {
-                        field_name: {
-                            "mean_contribution": float(index * (field_index + 1)),
-                            "conditional_mean": float(index + field_index + 10),
-                        }
-                        for field_index, field_name in enumerate(field_names)
-                    },
-                }
-                for index, name in enumerate(("1+", "1-", "2", "3", "4+", "4-"), start=1)
-            }
-        }
-        figure = _cq_figure(report)
-        self.assertEqual(len(figure.data), 5)
-        self.assertEqual(
-            [trace.name for trace in figure.data],
-            ["mean Π", "mean S̄", "mean W_full", "mean W_res", "mean ΔW"],
-        )
-        self.assertEqual(list(figure.data[0].y), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
-        self.assertEqual(
-            list(figure.data[0].x), ["1+", "1-", "2", "3", "4+", "4-"]
-        )
-        self.assertEqual(figure.layout.barmode, "group")
-        self.assertEqual(figure.layout.legend.title.text, "物理量")
-        self.assertEqual(figure.layout.xaxis.type, "category")
-        self.assertEqual(
-            list(figure.layout.xaxis.categoryarray),
-            ["1+", "1-", "2", "3", "4+", "4-"],
-        )
-        self.assertEqual(
-            [row["regime"] for row in cq_rows(report, "pi")],
-            ["1+", "1-", "2", "3", "4+", "4-"],
-        )
-        for field_name in field_names:
-            rows = cq_rows(report, field_name)
-            self.assertEqual(len(rows), 6)
-            self.assertEqual(len(rows[0]), 5)
-
-
-    def test_regime_figure_keeps_full_domain_without_string_payload(self) -> None:
-        values = np.zeros((1024, 1024), dtype=np.uint8)
-        figure = _regime_figure(values, "regime")
-        self.assertEqual(figure.data[0].z.shape, (1024, 1024))
-        self.assertIsNone(figure.data[0].customdata)
 
     def test_weak_asymmetry_figure_and_rows_keep_sign_convention(self) -> None:
         report = {
@@ -187,25 +128,6 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(rows[0]["sign"], "positive/backscatter")
         self.assertEqual(rows[1]["sign"], "negative/forward")
 
-    def test_regime_pi_figure_and_rows_expose_requested_metrics(self) -> None:
-        directions = {
-            "backscatter": {"count": 2, "mean": 3.0, "fraction": 0.4, "intensity": 1.2},
-            "forward": {"count": 3, "mean": 4.0, "fraction": 0.6, "intensity": 2.4},
-        }
-        report = {
-            "regime_order": list(CQ_REGIME_ORDER),
-            "regimes": {
-                name: {"directions": directions} for name in CQ_REGIME_ORDER
-            },
-        }
-        figure = _regime_pi_figure(report)
-        self.assertEqual(len(figure.data), 6)
-        self.assertEqual(list(figure.data[0].y), [3.0] * 6)
-        self.assertEqual(list(figure.data[1].y), [4.0] * 6)
-        rows = regime_pi_rows(report)
-        self.assertEqual(len(rows), 12)
-        self.assertEqual(rows[0]["regime"], "1+")
-        self.assertEqual(rows[0]["mean |Pi|"], "3.000000e+00")
 
     def test_sbar_metric_rows_expose_thresholds_and_status(self) -> None:
         report = {
@@ -300,8 +222,8 @@ def test_dashboard_import_with_streamlit_script_directory_first(entry):
         "import runpy, sys; from pathlib import Path; "
         "sys.path.insert(0, str(Path(sys.argv[1]).parent)); "
         "runpy.run_path(sys.argv[1], run_name='_dashboard_import_probe'); "
-        "from regime_pi.statistics import compute_regime_pi_statistics; "
-        "assert callable(compute_regime_pi_statistics)"
+        "from jhtdb_pipeline.store import open_complete_result; "
+        "assert callable(open_complete_result)"
     )
     result = subprocess.run(
         [sys.executable, "-c", probe, str(script)],
@@ -343,3 +265,17 @@ def test_full_field_gui_all_pages_and_boundary_slices(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_result_catalog_prefers_current_schema_when_old_results_coexist(tmp_path):
+    paths = []
+    for name, version, sigma in [('old', 8, 10), ('current', 9, 10), ('other', 8, 15)]:
+        path = tmp_path / name
+        path.mkdir()
+        (path / 'manifest.json').write_text(json.dumps({
+            'schema_version': version, 'time_index': 1,
+            'sigma_grid': sigma, 'filter_type': 'gaussian',
+        }))
+        paths.append(path)
+    catalog = result_selection_catalog(paths)
+    assert [item['path'].name for item in catalog] == ['current', 'other']

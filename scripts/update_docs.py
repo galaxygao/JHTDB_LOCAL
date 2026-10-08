@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-SUBPROJECTS = ('block_statistics', 'qpower_analysis', 'pi_pdf', 'pi_slices', 'scatter', 'regime_pi', 'flux_plateau')
+SUBPROJECTS = ('qpower_analysis',)
 
 
 def sources():
@@ -79,7 +79,7 @@ def reference(paths, destination):
 
 
 def cli_reference(paths):
-    out = ['# 全功能命令与参数参考', '', '全部命令从项目根目录运行，`python` 替换为本机虚拟环境解释器。以下 argparse 参数直接从代码生成，保留 default/type/choices/required/help；共用 helper 参数会在其所属模块列出。表达式默认值的实际值以配置/运行时 `--help` 为准。', '', '主入口：`python -m jhtdb_pipeline COMMAND --config CONFIG`。各命令及前后置条件见 [操作手册](handbook.md)。独立脚本用 `python 路径 --help`。PowerShell/bash 包装入口见 [scripts README](../scripts/README.md)。', '', '| 主命令 | 行为 |', '|---|---|', '| auth status | token 配置来源；不验证网络 |', '| doctor / plan | 环境、路径、资源 / 请求规划 |', '| smoke | 小型在线请求 |', '| cache / validate-input | 下载续传 / 本地完整校验 |', '| status | catalog 和正式结果状态；不包含本地 FD4 manifest |', '| process-full / finalize-result | 单尺度计算（或配置全部尺度）/显式提交 |', '| process-batch | 多尺度共享计算与提交 |', '| single-frame | 必要时 doctor、cache、validate、batch；完整结果可直接复用 |', '| compute-cq / compute-weak-asymmetry / qa-sbar | 重算或复用正式 QA 报告 |', '| compute-regime-pi | 独立逐 regime 输出 |', '| gui | 启动只读 Streamlit |', '', '`--sigma-grid` 与 `--sigma-grids` 互斥，后者仅 batch/single-frame/regime-pi 支持。滤波覆盖参数只作用于本次命令。主 CLI 通常成功 0，异常 1，doctor/QA 不通过 2；argparse 用法错误也为 2。', '']
+    out = ['# 全功能命令与参数参考', '', '全部命令从项目根目录运行，`python` 替换为本机虚拟环境解释器。以下 argparse 参数直接从代码生成，保留 default/type/choices/required/help；共用 helper 参数会在其所属模块列出。表达式默认值的实际值以配置/运行时 `--help` 为准。', '', '主入口：`python -m jhtdb_pipeline COMMAND --config CONFIG`。各命令及前后置条件见 [操作手册](handbook.md)。独立脚本用 `python 路径 --help`。PowerShell/bash 包装入口见 [scripts README](../scripts/README.md)。', '', '| 主命令 | 行为 |', '|---|---|', '| auth status | token 配置来源；不验证网络 |', '| doctor / plan | 环境、路径、资源 / 请求规划 |', '| smoke | 小型在线请求 |', '| cache / validate-input | 下载续传 / 本地完整校验 |', '| status | catalog 和正式结果状态；不包含本地 FD4 manifest |', '| process-full / finalize-result | 单尺度计算（或配置全部尺度）/显式提交 |', '| process-batch | 多尺度共享计算与提交 |', '| single-frame | 必要时 doctor、cache、validate、batch；完整结果可直接复用 |', '| compute-weak-asymmetry / qa-sbar | 重算或复用正式 QA 报告 |', '| gui | 启动只读 Streamlit |', '', '`--sigma-grid` 与 `--sigma-grids` 互斥，后者仅 batch/single-frame 支持。滤波覆盖参数只作用于本次命令。主 CLI 通常成功 0，异常 1，doctor/QA 不通过 2；argparse 用法错误也为 2。', '']
     for path in paths:
         source = path.read_text(encoding='utf-8')
         tree = ast.parse(source)

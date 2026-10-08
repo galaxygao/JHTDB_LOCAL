@@ -63,7 +63,7 @@ class PlanningTests(unittest.TestCase):
                 path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
                 for path in result["result_paths"]
             ],
-            ["t000003_sigma_1", "t000003_sigma_2", "t000003_sigma_3"],
+            ["t000003_sigma_1_v9", "t000003_sigma_2_v9", "t000003_sigma_3_v9"],
         )
 
     def test_each_request_contains_four_checksum_tiles(self):
@@ -88,11 +88,11 @@ class PlanningTests(unittest.TestCase):
             sigma_grids=(1.0, 2.0, 3.0),
         )
         resources = resource_plan(batch_cfg)
-        self.assertEqual(resources["result_GiB"], 23.0)
-        self.assertEqual(resources["batch_result_GiB"], 69.0)
+        self.assertEqual(resources["result_GiB"], 22.0)
+        self.assertEqual(resources["batch_result_GiB"], 66.0)
         self.assertEqual(resources["shared_gradient_GiB"], 4.5)
-        self.assertEqual(resources["batch_persistent_GiB"], 85.5)
-        self.assertEqual(resources["batch_with_reserve_GiB"], 109.5)
+        self.assertEqual(resources["batch_persistent_GiB"], 82.5)
+        self.assertEqual(resources["batch_with_reserve_GiB"], 106.5)
 
 class CoordinateTests(unittest.TestCase):
     def test_cutout_zyxc_to_component_zyx_mapping(self):

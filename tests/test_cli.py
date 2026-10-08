@@ -19,7 +19,6 @@ class CliBatchTests(unittest.TestCase):
 
     def test_sbar_qa_commands_accept_frame_and_sigma(self) -> None:
         for command in (
-            "compute-cq",
             "compute-weak-asymmetry",
             "qa-sbar",
         ):
@@ -153,3 +152,13 @@ class CliBatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_removed_analysis_commands_are_rejected():
+    import pytest
+    from jhtdb_pipeline.cli import build_parser
+
+    for command in ('compute-regime-pi', 'compute-cq'):
+        with pytest.raises(SystemExit) as error:
+            build_parser().parse_args([command, '--time-index', '1'])
+        assert error.value.code == 2

@@ -10,12 +10,10 @@ from pathlib import Path
 from .auth import has_token, token_source
 from .catalog import Catalog
 from .config import FILTER_TYPES, load_config
-from .cq import run_cq
 from .doctor import doctor
 from .jhtdb import fetch_snapshot, smoke
 from .input_fields import field_config
 from .planning import plan
-from .regime_pi import run_regime_pi_statistics
 from .processing import (
     finalize_result,
     process_batch,
@@ -83,9 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
         "process-batch",
         "finalize-result",
         "single-frame",
-        "compute-cq",
         "compute-weak-asymmetry",
-        "compute-regime-pi",
         "qa-sbar",
     ):
         command = commands.add_parser(name)
@@ -93,17 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
         _sigma(command)
         if name == "single-frame":
             command.add_argument("--with-pressure-gradient", action="store_true")
-        if name in ("process-batch", "single-frame", "compute-regime-pi"):
+        if name in ("process-batch", "single-frame"):
             command.add_argument(
                 "--sigma-grids",
                 type=float,
                 nargs="+",
                 metavar="SIGMA",
-                help=(
-                    "compute these sigma values sequentially"
-                    if name == "compute-regime-pi"
-                    else "process these sigma values in one shared-FFT batch"
-                ),
+                help="process these sigma values in one shared-FFT batch",
             )
 
     gui = commands.add_parser("gui", help="start the read-only server GUI")
@@ -132,7 +124,7 @@ def _status(cfg) -> dict[str, object]:
             if (
                 not path.is_dir()
                 or path.name.startswith(".")
-                or path.name.endswith("_shared")
+                or path.name.endswith(("_shared", "_shared_full", "_shared_stride2", "_shared_stride2_v9"))
             ):
                 continue
             manifest_path = path / "manifest.json"
@@ -148,14 +140,17 @@ def _status(cfg) -> dict[str, object]:
                         "manifest_status": manifest.get("status"),
                         "schema_version": manifest.get("schema_version"),
                         "s_bar_qa_passed": manifest.get("s_bar_qa_passed"),
-                        "cq_passed": manifest.get("cq_passed"),
                         "weak_asymmetry_passed": manifest.get(
                             "weak_asymmetry_passed"
                         ),
                     }
                 )
             results.append(item)
-        for path in sorted(cfg.result_root.glob("t*_filter_*_batch_manifest.json")):
+        batch_paths = {
+            *cfg.result_root.glob("t*_filter_*_batch_manifest.json"),
+            *cfg.result_root.glob("t*_filter_*_batch_manifest_v9.json"),
+        }
+        for path in sorted(batch_paths):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
                 payload["manifest_path"] = str(path)
@@ -263,17 +258,15 @@ def main(argv: list[str] | None = None) -> int:
                 print(fetch_snapshot(field_config(cfg, "pressure_gradient"), args.time_index))
         elif args.command == "validate-input":
             _print_json(validate_snapshot(cfg, args.time_index))
-        elif args.command in ("process-full", "finalize-result", "compute-regime-pi"):
+        elif args.command in ("process-full", "finalize-result"):
             operation = {
                 "process-full": process_full,
                 "finalize-result": finalize_result,
-                "compute-regime-pi": run_regime_pi_statistics,
             }[args.command]
             sigmas = _selected_sigmas(cfg, args.sigma_grid, getattr(args, "sigma_grids", None))
             _print_paths([operation(cfg, args.time_index, sigma) for sigma in sigmas])
-        elif args.command in ("compute-cq", "compute-weak-asymmetry", "qa-sbar"):
+        elif args.command in ("compute-weak-asymmetry", "qa-sbar"):
             operation = {
-                "compute-cq": run_cq,
                 "compute-weak-asymmetry": run_weak_asymmetry,
                 "qa-sbar": run_sbar_qa,
             }[args.command]

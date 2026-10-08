@@ -261,7 +261,7 @@ def compute_weak_asymmetry(
         positive_count=positive_count,
         negative_count=negative_count,
         zero_count=zero_count,
-        closure_relative_max=cfg.cq_partition_relative_max,
+        closure_relative_max=cfg.weak_asymmetry_closure_relative_max,
     )
 
 

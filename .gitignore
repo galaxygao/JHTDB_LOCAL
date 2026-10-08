@@ -1,3 +1,40 @@
+# Track source code, configuration and tests only.
+*
+!*/
+!*.py
+!*.pyi
+!*.c
+!*.cpp
+!*.h
+!*.hpp
+!*.m
+!*.sh
+!*.ps1
+!*.toml
+!*.yaml
+!*.yml
+!/configs/**/*.json
+!/qpower_analysis/config*.json
+!/tests/**
+!**/tests/**
+!.gitignore
+!.gitattributes
+!Makefile
+!requirements*.txt
+
+# Runtime artifacts stay local even when they contain code/config snapshots.
+output/
+outputs/
+result/
+results/
+review_png/
+state/
+inputs/
+cache/
+logs/
+.scratch/
+.local/
+.DS_Store
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -7,33 +44,12 @@ __pycache__/
 .venv-mac/
 .venv-windows/
 .venv-linux/
-.local/
-.DS_Store
 .env
 .env.*
 .secrets/
-outputs/**/*.npy
-
-# SciServer runtime products (persistent paths under the project directory).
-state/
-results/
-
-# Defensive ignores for accidental runtime stores.
 *.zarr/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
 *.partial
-
-# Reproducible local visualization products.
-pi_slices/output/
-
-# Subproject-local transient/cache data.
-*/.scratch/
-block_statistics/cache/
-qpower_analysis/output/**/*.npy
-qpower_analysis/output/**/angle_values.npz
 configs/*.local.yaml
-
-# Local reference paper.
-/tensor-geometry-in-the-turbulent-cascade.pdf

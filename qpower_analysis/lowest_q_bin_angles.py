@@ -10,8 +10,12 @@ from pathlib import Path
 import numpy as np
 
 from jhtdb_pipeline.store import spatial_slices
-from qpower_analysis.angle_statistics import angle_degrees
-from qpower_analysis.conditional_tails import validated_fields
+if __package__:
+    from .angle_statistics import angle_degrees
+    from .conditional_tails import validated_fields
+else:
+    from angle_statistics import angle_degrees
+    from conditional_tails import validated_fields
 
 
 def run(folder: Path) -> None:

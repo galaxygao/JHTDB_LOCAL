@@ -87,7 +87,7 @@ class CatalogStoreTests(unittest.TestCase):
 
 @pytest.mark.parametrize(
     "name,version,html",
-    [("cq", 4, "cq.html"), ("s_bar_qa", 1, "s_bar_global_totals.html"),
+    [("s_bar_qa", 1, "s_bar_global_totals.html"),
      ("weak_asymmetry", 2, "weak_asymmetry.html")],
 )
 def test_qa_report_chain_rejects_tampering_and_incomplete_artifacts(tmp_path, name, version, html):
@@ -125,13 +125,13 @@ def test_qa_report_chain_rejects_tampering_and_incomplete_artifacts(tmp_path, na
 
 @pytest.mark.parametrize("failure", ["manifest.json", "attrs", "COMPLETE"])
 def test_interrupted_report_refresh_rejects_stale_chain_and_can_retry(tmp_path, monkeypatch, failure):
-    report_path = tmp_path / "cq.json"
-    report = {"report_version": 4, "scope": "full_domain", "passed": True}
-    metadata = report_metadata("cq", report, atomic_json(report_path, report))
+    report_path = tmp_path / "weak_asymmetry.json"
+    report = {"report_version": 2, "scope": "full_domain", "passed": True}
+    metadata = report_metadata("weak_asymmetry", report, atomic_json(report_path, report))
     preserved = {"fields": {"pi": {"sha256": "field-hash"}}, "other_report_hash": "other-hash"}
     manifest_hash = atomic_json(tmp_path / "manifest.json", {**preserved, **metadata})
     atomic_json(tmp_path / "COMPLETE", {"manifest_hash": manifest_hash})
-    (tmp_path / "cq.html").write_text("report")
+    (tmp_path / "weak_asymmetry.html").write_text("report")
 
     class FailingAttrs(dict):
         def update(self, values):
@@ -140,11 +140,11 @@ def test_interrupted_report_refresh_rejects_stale_chain_and_can_retry(tmp_path, 
             super().update(values)
 
     root = SimpleNamespace(attrs=FailingAttrs({**preserved, **metadata, "manifest_hash": manifest_hash}))
-    assert load_chained_report(tmp_path, root, "cq", 4) == report
+    assert load_chained_report(tmp_path, root, "weak_asymmetry", 2) == report
     complete_before = (tmp_path / "COMPLETE").read_bytes()
     # A failed scientific QA is still a valid report when persistence completes.
     report = {**report, "passed": False}
-    metadata = report_metadata("cq", report, atomic_json(report_path, report))
+    metadata = report_metadata("weak_asymmetry", report, atomic_json(report_path, report))
 
     def interrupted_json(path, payload):
         if path.name == failure:
@@ -156,11 +156,11 @@ def test_interrupted_report_refresh_rejects_stale_chain_and_can_retry(tmp_path, 
         with pytest.raises(OSError, match="interrupted"):
             update_report_metadata(tmp_path, root, metadata)
     assert (tmp_path / "COMPLETE").read_bytes() == complete_before
-    assert load_chained_report(tmp_path, root, "cq", 4) is None
+    assert load_chained_report(tmp_path, root, "weak_asymmetry", 2) is None
 
     root.attrs = dict(root.attrs)
     update_report_metadata(tmp_path, root, metadata)
-    assert load_chained_report(tmp_path, root, "cq", 4) == report
+    assert load_chained_report(tmp_path, root, "weak_asymmetry", 2) == report
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     for key, value in preserved.items():
         assert manifest[key] == root.attrs[key] == value

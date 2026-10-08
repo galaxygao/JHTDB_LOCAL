@@ -87,3 +87,18 @@ def test_random_overlap_baseline():
     assert empty['random_p_a_given_b'] == 0
     assert np.isnan(empty['random_p_b_given_a'])
     assert np.isnan(empty['p_a_given_b_over_random'])
+
+
+@pytest.mark.parametrize("script", ["lowest_q_bin_angles", "near_zero_diagnostic"])
+def test_analysis_help_supports_script_and_module(tmp_path, script):
+    import os
+    import subprocess
+    import sys
+
+    environment = {**os.environ, 'MPLCONFIGDIR': str(tmp_path / 'matplotlib')}
+    for entry in ([f'qpower_analysis/{script}.py'],
+                  ['-m', f'qpower_analysis.{script}']):
+        result = subprocess.run([sys.executable, *entry, '--help'],
+                                capture_output=True, text=True, env=environment)
+        assert result.returncode == 0, result.stderr
+        assert '--run-dir' in result.stdout

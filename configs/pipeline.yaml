@@ -45,8 +45,8 @@ validation:
   energy_identity_relative_rms_max: 1.0e-4
   # 周期域净输运检查 |sum(S_bar)|/|sum(Pi)| 上限。
   s_bar_vs_pi_net_max: 1.0e-2
-  # 六个 regime 重新合成全域统计时的相对 closure 上限。
-  cq_partition_relative_max: 1.0e-12
+  # Pi 正负分拆的相对 closure 上限。
+  weak_asymmetry_closure_relative_max: 1.0e-12
 
 physics:
   # 一个值或多个唯一正数。CLI 的 --sigma-grid/--sigma-grids 可临时覆盖。
@@ -57,13 +57,6 @@ physics:
 
   # smooth_sharp 的唯一边缘宽度参数：跨 sigma 固定 alpha=w/k_c。
   sharp_edge_width_fraction: 0.1171875
-
-
-
-
-  # regime uncertain 阈值：epsilon=max(epsilon_abs, epsilon_rel*RMS(work))。
-  epsilon_abs: 0.0
-  epsilon_rel: 0.001
 
   # scipy FFT worker 数及按第一空间轴处理的 slab 宽度。
   fft_cache_mode: memory  # 大内存机器；24 GB Mac 使用 pipeline.macos.yaml。

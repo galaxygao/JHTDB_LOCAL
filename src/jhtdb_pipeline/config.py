@@ -9,18 +9,18 @@ from typing import Any, Mapping
 import yaml
 
 
-RESULT_SCHEMA_VERSION = 8
-READABLE_RESULT_SCHEMAS = (7, 8)
+RESULT_SCHEMA_VERSION = 9
+READABLE_RESULT_SCHEMAS = (7, 8, 9)
 SAMPLED_FIELDS = ("gradient", "velocity_bar", "gradient_bar")
 VECTOR_STORAGE_STRIDE = 2
 
 
 def field_sampling(grid_shape: tuple[int, int, int], schema_version: int = RESULT_SCHEMA_VERSION) -> dict[str, dict[str, list[int]]]:
     """Map stored array indices to the original periodic grid, field by field."""
-    fields = ("velocity", *SAMPLED_FIELDS, "work_full", "work_resolved", "pi", "s_bar", "regime")
+    fields = ("velocity", *SAMPLED_FIELDS, "work_full", "work_resolved", "pi", "s_bar")
     sampling = {}
     for name in fields:
-        stride = VECTOR_STORAGE_STRIDE if schema_version == 8 and name in SAMPLED_FIELDS else 1
+        stride = VECTOR_STORAGE_STRIDE if schema_version >= 8 and name in SAMPLED_FIELDS else 1
         sampling[name] = {
             "origin_xyz": [0, 0, 0],
             "stride_xyz": [stride] * 3,
@@ -108,10 +108,8 @@ class PipelineConfig:
     divergence_relative_max_max: float
     energy_identity_relative_rms_max: float
     s_bar_vs_pi_net_max: float
-    cq_partition_relative_max: float
+    weak_asymmetry_closure_relative_max: float
     sigma_grid: float
-    epsilon_abs: float
-    epsilon_rel: float
     fft_workers: int
     fft_slab_width: int
     cleanup_scratch_on_success: bool
@@ -154,9 +152,6 @@ class PipelineConfig:
     def raw_store_path(self, time_index: int) -> Path:
         return self.persistent_raw_store_path(time_index)
 
-    def strain_store_path(self, time_index: int) -> Path:
-        """Per-frame, filter-independent full-domain S_ij S_ij cache."""
-        return Path(__file__).resolve().parents[2] / "block_statistics" / "cache" / f"t{time_index:06d}" / "strain_cache.zarr"
 
     def workspace_path(self, time_index: int, sigma_grid: float | None = None) -> Path:
         sigma = self.sigma_grid if sigma_grid is None else sigma_grid
@@ -170,10 +165,10 @@ class PipelineConfig:
     def result_id(self, time_index: int, sigma_grid: float | None = None) -> str:
         sigma = self.sigma_grid if sigma_grid is None else sigma_grid
         if self.filter_type == "gaussian":
-            return f"t{time_index:06d}_sigma_{sigma_tag(sigma)}"
+            return f"t{time_index:06d}_sigma_{sigma_tag(sigma)}_v9"
         return (
             f"t{time_index:06d}_filter_{self.filter_type}"
-            f"_{self.sharp_edge_tag}_sigma_{sigma_tag(sigma)}"
+            f"_{self.sharp_edge_tag}_sigma_{sigma_tag(sigma)}_v9"
         )
 
     def staging_result_path(self, time_index: int, sigma_grid: float | None = None) -> Path:
@@ -186,20 +181,20 @@ class PipelineConfig:
         self.physical_time(time_index)
         if self.filter_type == "gaussian":
             return self.result_root / (
-                f"t{time_index:06d}_filter_gaussian_batch_manifest.json"
+                f"t{time_index:06d}_filter_gaussian_batch_manifest_v9.json"
             )
         return self.result_root / (
             f"t{time_index:06d}_filter_{self.filter_type}"
-            f"_{self.sharp_edge_tag}_batch_manifest.json"
+            f"_{self.sharp_edge_tag}_batch_manifest_v9.json"
         )
 
     def shared_result_path(self, time_index: int) -> Path:
         self.physical_time(time_index)
-        return self.result_root / f"t{time_index:06d}_shared_stride2"
+        return self.result_root / f"t{time_index:06d}_shared_stride2_v9"
 
     def shared_staging_result_path(self, time_index: int) -> Path:
         self.physical_time(time_index)
-        return self.result_root / ".staging" / f"t{time_index:06d}_shared_stride2"
+        return self.result_root / ".staging" / f"t{time_index:06d}_shared_stride2_v9"
 
     def shared_gradient_store_path(self, time_index: int) -> Path:
         return self.shared_result_path(time_index) / "sampled_raw.zarr"
@@ -225,7 +220,7 @@ class PipelineConfig:
     def result_uncompressed_bytes(self) -> int:
         points = math.prod(self.grid_shape)
         sampled_points = math.prod(self.stored_shape_zyx("velocity_bar"))
-        return sampled_points * (3 + 9) * 4 + points * (4 * 4 + 1)
+        return sampled_points * (3 + 9) * 4 + points * (4 * 4)
 
     @property
     def shared_gradient_uncompressed_bytes(self) -> int:
@@ -293,7 +288,7 @@ class PipelineConfig:
         if (
             self.energy_identity_relative_rms_max <= 0
             or self.s_bar_vs_pi_net_max <= 0
-            or self.cq_partition_relative_max <= 0
+            or self.weak_asymmetry_closure_relative_max <= 0
         ):
             raise ValueError("energy QA tolerances must be positive")
         if (
@@ -302,8 +297,6 @@ class PipelineConfig:
             or any(not math.isfinite(item) or item <= 0 for item in self.sigma_grids)
             or len(set(self.sigma_grids)) != len(self.sigma_grids)
             or len({sigma_tag(item) for item in self.sigma_grids}) != len(self.sigma_grids)
-            or self.epsilon_abs < 0
-            or self.epsilon_rel < 0
         ):
             raise ValueError("physics parameters are invalid")
         if self.fft_cache_mode not in ("memory", "memmap"):
@@ -341,8 +334,9 @@ def load_config(path: str | Path) -> PipelineConfig:
     _reject_unknown(auth, {"token_file"}, "auth")
     _reject_unknown(jhtdb, {"request_shape", "tile_shape", "retries", "backoff_seconds", "request_cooldown_seconds"}, "jhtdb")
     _reject_unknown(storage, {"compression_level", "compression_threads", "persistent_safety_reserve_gib", "scratch_safety_reserve_gib"}, "storage")
-    _reject_unknown(validation, {"divergence_relative_rms_max", "divergence_relative_max_max", "energy_identity_relative_rms_max", "s_bar_vs_pi_net_max", "cq_partition_relative_max"}, "validation")
-    _reject_unknown(physics, {"sigma_grid", "filter_type", "sharp_edge_width_fraction", "epsilon_abs", "epsilon_rel", "fft_workers", "fft_slab_width", "fft_cache_mode", "cleanup_scratch_on_success"}, "physics")
+    _reject_unknown(validation, {"divergence_relative_rms_max", "divergence_relative_max_max", "energy_identity_relative_rms_max", "s_bar_vs_pi_net_max", "weak_asymmetry_closure_relative_max"}, "validation")
+
+    _reject_unknown(physics, {"sigma_grid", "filter_type", "sharp_edge_width_fraction", "fft_workers", "fft_slab_width", "fft_cache_mode", "cleanup_scratch_on_success"}, "physics")
 
     token_value = auth.get("token_file")
     sigma_grids = _sigma_values(physics.get("sigma_grid", 1.0))
@@ -369,10 +363,8 @@ def load_config(path: str | Path) -> PipelineConfig:
         divergence_relative_max_max=float(validation.get("divergence_relative_max_max", 1.0e-3)),
         energy_identity_relative_rms_max=float(validation.get("energy_identity_relative_rms_max", 1.0e-4)),
         s_bar_vs_pi_net_max=float(validation.get("s_bar_vs_pi_net_max", 1.0e-2)),
-        cq_partition_relative_max=float(validation.get("cq_partition_relative_max", 1.0e-12)),
+        weak_asymmetry_closure_relative_max=float(validation.get("weak_asymmetry_closure_relative_max", 1.0e-12)),
         sigma_grid=sigma_grids[0],
-        epsilon_abs=float(physics.get("epsilon_abs", 0.0)),
-        epsilon_rel=float(physics.get("epsilon_rel", 0.001)),
         fft_cache_mode=str(physics.get("fft_cache_mode", "memory")),
         fft_workers=int(physics.get("fft_workers", 16)),
         fft_slab_width=int(physics.get("fft_slab_width", 32)),
