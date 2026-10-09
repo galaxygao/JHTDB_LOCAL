@@ -2,38 +2,15 @@
 
 ## 可迁移内容和本机内容
 
-同步源码、配置模板、文档及需要的科学数据；每台机器重新建立 `.venv` / `.venv-mac` / `.venv-windows` / `.venv-linux`。`deploy.py` 会重新生成 `<data-root>/pipeline.yaml`，不能依赖上次手改该生成文件的计算参数。主计算应使用独立的本机配置。
+同步源码、配置模板、文档及需要的科学数据；每台机器按 [首次部署教程](../README.md#first-deployment) 建立自己的 `.venv-windows` / `.venv-mac` / `.venv-linux`。旧 Windows 包装脚本另用 `.venv`。`deploy.py` 会重新生成 `<data-root>/pipeline.yaml`，不能依赖上次手改该生成文件的计算参数。主计算的资源调整应保存在独立的本机配置。
 
 Git ignore 不控制云盘同步。虚拟环境、token、大型工作区、活动 SQLite/Zarr 应在同步客户端单独排除；暂停写入后再迁移。完整结果依赖同帧速度缓存及共享梯度，scratch/FFT 缓存可重建。依赖只锁定范围，目标机安装可能解析出不同版本；迁移前后记录 `python -m pip freeze`、`python --version`、代码版本和本机配置以便复现，不把 token 写入记录。
 
 ## Token 录入
 
-临时环境变量方式见 [根 README](../README.md)。持续使用单行 token 文件：
+三个平台的隐藏录入命令统一见 [根 README 的 token 文件步骤](../README.md#token-file)。默认文件在目标机用户主目录的 `.secrets/jhtdb_token`，已有有效文件无需重复录入；macOS/Linux 权限为 `600` 或更严格。安装环境不会自动生成 token 内容。
 
-```bash
-# macOS/Linux：隐藏输入，写入用户目录，并显式限制权限。
-python3 - <<'PY'
-import getpass, os
-from pathlib import Path
-p = Path.home() / '.secrets/jhtdb_token'
-p.parent.mkdir(parents=True, exist_ok=True)
-fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-os.fchmod(fd, 0o600)
-with os.fdopen(fd, 'w') as f:
-    f.write(getpass.getpass('JHTDB token: ').strip() + '\n')
-PY
-```
-
-Windows PowerShell：
-
-```powershell
-$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
-New-Item -ItemType Directory -Force (Split-Path $TokenPath) | Out-Null
-$Secret = Read-Host 'JHTDB token' -AsSecureString
-[IO.File]::WriteAllText($TokenPath, [System.Net.NetworkCredential]::new('', $Secret).Password)
-```
-
-将 YAML `auth.token_file` 指向该文件，或 `deploy.py --token-file <路径>`。deploy 依次选择显式 token 文件、项目 `.secrets/jhtdb_token`、用户 `.secrets/jhtdb_token`，实际 auth 中环境变量仍最高优先。POSIX auth 会拒绝组/其他用户可读写的 token 文件。不要提交 token 文件。
+迁移后将实际运行 YAML 的 `auth.token_file` 指向目标机文件，或给 deploy 显式传 `--token-file`。非空 `JHTDB_TOKEN` 仍有最高优先级。文件选择规则见 [部署说明](deployment.md)。不把 token 放入迁移归档、Git 或运行记录。
 
 ## 输入数据迁移：Mac → Windows（反向相同）
 
@@ -44,7 +21,7 @@ $Secret = Read-Host 'JHTDB token' -AsSecureString
 5. 使用目标机解释器校验（以下 Windows 示例）：
 
 ```powershell
-$Python = '.\.venv\Scripts\python.exe'
+$Python = '.\.venv-windows\Scripts\python.exe'
 $Config = 'configs/pipeline.yaml'
 & $Python -m jhtdb_pipeline doctor --time-index 1 --config $Config
 & $Python -m jhtdb_pipeline validate-input --time-index 1 --config $Config

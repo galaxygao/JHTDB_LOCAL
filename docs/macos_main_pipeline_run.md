@@ -68,14 +68,11 @@ FFT 和压缩主要依次执行。FFT 显式使用配置中的 10 worker。
 
 ## 用户执行命令
 
-从项目根目录运行。已有虚拟环境和输入缓存时无需重新创建环境或强制下载。
+首次安装环境与保存 token 按 [根 README](../README.md#first-deployment) 执行，统一使用 `python3 deploy.py --stage setup`，环境为 `.venv-mac`。以下命令用于部署完成后的运行，已有环境和 token 无需重复安装或录入。
+从你的项目根目录执行；示例路径应改为本机位置。默认配置使用 `.local`，换数据盘时须另存 YAML 并同步 state/run/result 路径，不能只改 deploy 的 `--data-root`。
 
 ```bash
 cd /Users/xingqungao/Desktop/Sync_File/26FA/JHU_DATA
-
-# 安装依赖仅在首次或环境缺失时执行
-python3 -m venv .venv-mac
-.venv-mac/bin/python -m pip install -e '.[dev]'
 
 # 检查与输入准备
 PYTHON=.venv-mac/bin/python
@@ -107,7 +104,7 @@ STREAMLIT_SERVER_HEADLESS=true "$PYTHON" -m jhtdb_pipeline gui \
 
 ## macOS 命令差异
 
-- `.venv\Scripts\python.exe` → `.venv-mac/bin/python`。
+- deploy 的 Windows 环境 `.venv-windows\Scripts\python.exe` → `.venv-mac/bin/python`；旧 Windows 包装脚本使用 `.venv`。
 - PowerShell 反引号续行 → shell 的 `\`；环境变量使用 `export`。
 - Mac 配置使用 `.local/`，token 由 `JHTDB_TOKEN` 或 `${HOME}/.secrets/jhtdb_token` 读取。
 - `caffeinate -i` 防止空闲睡眠；脚本已内置调用。

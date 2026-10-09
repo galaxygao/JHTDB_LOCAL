@@ -1,15 +1,18 @@
 # 操作手册：配置、GUI 与端到端命令
 
-本项目在 Windows / macOS 本地下载 JHTDB `isotropic1024coarse` 的完整 `1024³` 单帧速度场，
+本项目在 Windows / macOS / Linux 下载 JHTDB `isotropic1024coarse` 的完整 `1024³` 单帧速度场，
 在完整周期域上完成谱滤波、谱导数、能量传输量、QA 和多 sigma 统计，并用只读
 Streamlit GUI 查看正式结果。
 
-当前生产配置使用比例宽度 smooth-sharp 滤波：
+通用模板 `configs/pipeline.yaml` 使用比例宽度 smooth-sharp 滤波：
 
 - `sigma = [10, 15, 30, 55, 75]`；
 - `alpha = w/k_c = 0.1171875`；
 - 16 个 FFT worker、8 个压缩线程；
-- 正式数据位于 `C:/Xingqun_Gao/persistent`。
+- 模板路径位于 `C:/Xingqun_Gao/persistent`；deploy 生成配置时改为所选 data-root。
+
+下面 Windows CLI 示例使用 deploy 创建的 `.venv-windows` 和默认 `.local/pipeline.yaml`。
+使用其他数据根目录或独立本机 YAML 时替换配置路径；macOS/CRC 使用各自专用配置。
 
 ## 文档与代码位置
 
@@ -24,8 +27,8 @@ Streamlit GUI 查看正式结果。
 
 - Python 3.9 或更新版本；
 - JHTDB 个人 token；
-- RAM 共享缓存模式推荐至少 16 个物理核心和 192 GiB RAM；磁盘共享缓存模式可用于 24 GB Mac；
-- `memory` 模式多 sigma smooth-sharp batch 峰值约 92 GiB RAM；24 GB Mac 使用下述 `memmap` 配置；
+- RAM 共享缓存本身约 84.09 GiB，另有 FFT 临时数组、QA 和工作文件驻留页；完整域峰值尚未实测；
+- CRC 的 32 CPU / 160G 推荐及估算依据见 [Linux 方案](linux_crc_run.md)，192G 不是最低要求；24 GB Mac 使用下述 `memmap` 配置；
 - 完整输入缓存约 12 GiB，单个 sigma 正式结果约 22 GiB，另有每帧共享原始梯度约 4.5 GiB；
 - 默认要求正式盘和临时盘各保留至少 24 GiB 安全余量。
 
@@ -34,40 +37,25 @@ FFT 频谱，并通过生产锁阻止相互覆盖。
 
 ## 安装
 
-所有命令均在 PowerShell 中从项目根目录运行：
+三平台的完整首次安装、token 文件和环境复用步骤统一见
+[根 README](../README.md#first-deployment)。Windows 仅安装环境的命令，从项目根目录运行：
 
 ```powershell
-cd D:\Xingqun_Gao\JHTDB_LOCAL
-powershell -ExecutionPolicy Bypass -File scripts\bootstrap_local.ps1
+py -3 deploy.py --stage setup --data-root .local --token-file (Join-Path $HOME '.secrets\jhtdb_token')
 ```
 
-脚本会创建 `.venv`、安装项目和测试依赖、编译源码并运行测试。手动安装的等价命令为：
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-python -m pytest -q
-```
-
-如果当前 PowerShell 禁止激活脚本，可只为当前进程放开：
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-后续示例统一使用 `.\.venv\Scripts\python.exe`，因此并不依赖虚拟环境是否已激活。
+安装生成 `.venv-windows` 与 `.local/pipeline.yaml`，不下载或计算，也不录入 token 内容。
+后续直接使用 `.\.venv-windows\Scripts\python.exe`，无需激活或修改执行策略。
+旧 `bootstrap_local.ps1` 会创建另一环境 `.venv` 并运行测试，属于旧脚本流程，
+不作为这里首次部署的必需步骤。环境安装一次后持续复用。
 
 ## macOS：10 核 / 24 GB 配置
 
-从项目根目录运行，使用 [`configs/pipeline.macos.yaml`](../configs/pipeline.macos.yaml)：
+先按根 README 部署环境与 token，再从项目根目录运行，使用
+[`configs/pipeline.macos.yaml`](../configs/pipeline.macos.yaml)。以下步骤包含在线下载和计算，
+逐条确认成功，失败后停止：
 
 ```bash
-python3 -m venv .venv-mac
-.venv-mac/bin/python -m pip install -e '.[dev]'
-# 复用现有环境时跳过以上两行。
 .venv-mac/bin/python -m jhtdb_pipeline doctor --time-index 1 --config configs/pipeline.macos.yaml
 .venv-mac/bin/python -m jhtdb_pipeline smoke --time-index 1 --config configs/pipeline.macos.yaml
 .venv-mac/bin/python -m jhtdb_pipeline cache --time-index 1 --config configs/pipeline.macos.yaml
@@ -94,31 +82,24 @@ STREAMLIT_SERVER_HEADLESS=true .venv-mac/bin/python -m jhtdb_pipeline gui \
 
 ## JHTDB token
 
-临时设置，只对当前 PowerShell 窗口有效：
+长期使用用户主目录下 `.secrets/jhtdb_token`，隐藏录入步骤见
+[根 README](../README.md#token-file)。deploy 首次安装时显式指定该文件；实际运行 YAML 的
+`auth.token_file` 也必须指向同一个位置。非空环境变量 `JHTDB_TOKEN` 优先于文件。
+验证配置：
 
 ```powershell
-$env:JHTDB_TOKEN = "你的个人 JHTDB token"
-```
-
-长期方式是在 `configs/pipeline.yaml` 的 `auth.token_file` 指向的文件中只写一行 token。
-默认位置是：
-
-```text
-C:\Xingqun_Gao\persistent\.secrets\jhtdb_token
-```
-
-环境变量的优先级高于 token 文件。验证配置：
-
-```powershell
-.\.venv\Scripts\python.exe -m jhtdb_pipeline auth status `
-  --config configs\pipeline.yaml
+.\.venv-windows\Scripts\python.exe -m jhtdb_pipeline auth status `
+  --config .local\pipeline.yaml
 ```
 
 输出必须包含 `"configured": true`。token 不要写入 Git 项目或命令日志。
 
 ## 配置文件
 
-主配置是 [`configs/pipeline.yaml`](../configs/pipeline.yaml)。文件内已为每个选项添加注释。
+配置项说明以 [`configs/pipeline.yaml`](../configs/pipeline.yaml) 模板为参照，文件内有注释。
+新部署的 Windows 默认使用 `.local/pipeline.yaml`，macOS 使用 `configs/pipeline.macos.yaml`，
+CRC 使用 `configs/pipeline.linux.crc.yaml`。deploy 每次运行都会覆盖其生成 YAML，
+持久保存资源或路径调整时另存本机独立 YAML，然后用 `--config` 指定。
 CLI 参数只覆盖本次命令，不修改 YAML；未传 CLI 参数时使用 YAML 值。
 
 ### 配置项说明
@@ -165,8 +146,8 @@ alpha = sharp_edge_width_fraction = w/k_c
 启动只读 GUI：
 
 ```powershell
-.\.venv\Scripts\python.exe -m jhtdb_pipeline gui `
-  --config configs\pipeline.yaml --port 8501
+.\.venv-windows\Scripts\python.exe -m jhtdb_pipeline gui `
+  --config .local\pipeline.yaml --port 8501
 ```
 
 浏览器访问 `http://127.0.0.1:8501`。GUI 只发现 `result_root` 中带 `COMPLETE` 的正式结果，
@@ -198,7 +179,9 @@ stride，下游统计和磁盘结果仍使用全部格点。坐标轴保留源�
 .\scripts\run_smooth_sharp_full_pipeline.ps1
 ```
 
-脚本参数与行为见 [`scripts/README.md`](../scripts/README.md)。
+该旧 PowerShell 包装脚本固定使用 `.venv` 和 `configs/pipeline.yaml`，
+不自动复用 deploy 的 `.venv-windows`。新部署使用下面的直接 CLI 命令；
+旧脚本参数与行为见 [`scripts/README.md`](../scripts/README.md)。
 
 ## 自定义参数：完整端到端 CLI
 
@@ -206,8 +189,8 @@ stride，下游统计和磁盘结果仍使用全部格点。坐标轴保留源�
 重复输入：
 
 ```powershell
-$Python = ".\.venv\Scripts\python.exe"
-$Config = "configs\pipeline.yaml"
+$Python = ".\.venv-windows\Scripts\python.exe"
+$Config = ".local\pipeline.yaml"
 $TimeIndex = 7
 $Sigmas = @(8, 16, 32, 64)
 $Alpha = 0.10
@@ -279,20 +262,20 @@ $Alpha = 0.10
 Gaussian 多 sigma：
 
 ```powershell
-.\.venv\Scripts\python.exe -m jhtdb_pipeline process-batch `
+.\.venv-windows\Scripts\python.exe -m jhtdb_pipeline process-batch `
   --time-index 1 --sigma-grids 2 5 10 20 40 100 `
-  --filter-type gaussian --config configs\pipeline.yaml
+  --filter-type gaussian --config .local\pipeline.yaml
 ```
 
 只计算单个 sigma 时可用 `process-full`，随后必须执行同参数的 `finalize-result`：
 
 ```powershell
-.\.venv\Scripts\python.exe -m jhtdb_pipeline process-full `
+.\.venv-windows\Scripts\python.exe -m jhtdb_pipeline process-full `
   --time-index 1 --sigma-grid 20 --filter-type gaussian `
-  --config configs\pipeline.yaml
-.\.venv\Scripts\python.exe -m jhtdb_pipeline finalize-result `
+  --config .local\pipeline.yaml
+.\.venv-windows\Scripts\python.exe -m jhtdb_pipeline finalize-result `
   --time-index 1 --sigma-grid 20 --filter-type gaussian `
-  --config configs\pipeline.yaml
+  --config .local\pipeline.yaml
 ```
 
 ## 中断恢复
@@ -301,11 +284,11 @@ Gaussian 多 sigma：
 
 ```powershell
 cd D:\Xingqun_Gao\JHTDB_LOCAL
-$env:JHTDB_TOKEN = "你的个人 JHTDB token"  # 使用 token 文件时省略
-.\.venv\Scripts\python.exe -m jhtdb_pipeline auth status `
-  --config configs\pipeline.yaml
-.\.venv\Scripts\python.exe -m jhtdb_pipeline status `
-  --config configs\pipeline.yaml
+# token 文件仍可复用，不需要重新录入。
+.\.venv-windows\Scripts\python.exe -m jhtdb_pipeline auth status `
+  --config .local\pipeline.yaml
+.\.venv-windows\Scripts\python.exe -m jhtdb_pipeline status `
+  --config .local\pipeline.yaml
 ```
 
 然后重新运行被中断的命令。下载、正式结果 都带有可验证的续跑信息；已完成

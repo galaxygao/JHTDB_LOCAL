@@ -13,7 +13,7 @@
 | [完整命令参考](docs/cli_reference.md) | 所有 Python 入口与参数，含子项目和维护工具 |
 | [系统迁移](docs/system_migration.md) | Windows/macOS/Linux 环境、输入迁移、SQLite、绝对路径引用 |
 | [当前数据格式](docs/data_versions.md) | v7/v8/v9 字段、采样坐标、shape、dtype、布局与读取规则 |
-| [部署与压力流程](docs/deployment.md) | `deploy.py` 分阶段运行、后台日志、本地 FD4、QPower |
+| [部署与压力流程](docs/deployment.md) | 三个平台的持久环境、路径规则、`deploy.py` 各阶段、FD4 与 QPower |
 | [macOS 内存与磁盘方案](docs/macos_main_pipeline_run.md) | memmap、线程与资源限制 |
 | [Pitt CRC Linux 资源方案](docs/linux_crc_run.md) | 两个 pipeline 的 Slurm 资源、RAM 缓存、线程、路径与原有运行命令 |
 | [服务端压力梯度入口](docs/pressure_gradient_loading.md) | 独立 `fd4noint` 数据源，与本地 FD4 区分 |
@@ -22,108 +22,190 @@
 
 新会话先读本文，再读 architecture、data_versions、handbook；按任务进入对应子项目 README 与函数索引。源码和生成索引共同构成代码细节参考，公式与运行约束以人工审阅的实现说明为准。
 
-## 环境与资源
+<a id="first-deployment"></a>
 
-Python **3.9+**；依赖在 [pyproject.toml](pyproject.toml)。各系统重建自己的虚拟环境，不复制环境目录。Windows 生产配置使用 RAM FFT；24 GB Mac 使用 `configs/pipeline.macos.yaml` 的磁盘 FFT。完整速度输入约 12 GiB，五尺度永久数据未压缩约 126.5 GiB，另需约 84.09 GiB 共享磁盘缓存、工作区和安全余量。以 `plan`/预检为准；24 GB Mac 的完整域峰值尚未实测。
+## 首次部署：持久环境与 token 文件
 
-### 进入和退出虚拟环境
+系统先安装 Python **3.9+**，依赖见 [pyproject.toml](pyproject.toml)。以下步骤在项目根目录执行，两个 pipeline 共用一个本机环境。**只部署环境使用 `--stage setup`**：创建或复用虚拟环境、安装依赖并生成路径配置，不下载科学数据、不运行 pipeline，也不创建 token 内容。省略 `--stage` 默认是 `all`，会下载和计算。
 
-从项目根目录运行。环境目录不存在时，先按对应平台命令创建并安装依赖；激活不是必须的，文档中的 `.venv-*/bin/python` 或 `.venv\Scripts\python.exe` 也可以直接调用。
+环境和 token 保存在磁盘，关闭终端或结束 Slurm job 后仍可复用；不需要每次重新安装。各系统分别建立环境，不能跨系统复制。项目采用 editable 安装，应保留源码目录；移动项目或更换基础 Python 后重新部署。
+
+### 1. 按系统一键安装环境
+
+Windows / PowerShell：先进入你的项目目录，再执行。`.local` 是项目内的数据目录，也可将 `$DataRoot` 改为有足够空间的绝对路径。
+
+```powershell
+$DataRoot = '.local'
+$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
+py -3 deploy.py --stage setup --data-root $DataRoot --token-file $TokenPath
+if ($LASTEXITCODE -ne 0) { throw '环境部署失败，请先修复再继续' }
+$Python = '.\.venv-windows\Scripts\python.exe'
+$Config = Join-Path $DataRoot 'pipeline.yaml'
+```
+
+macOS / zsh 或 bash：先进入你的项目目录。下面默认数据目录与 macOS 配置中的 `.local` 一致。
 
 ```bash
-# macOS
-source .venv-mac/bin/activate
-
-# Linux
-source .venv-linux/bin/activate
-
-# 查看当前解释器
-which python
-python --version
-
-# 退出
-deactivate
+DATA_ROOT=.local
+TOKEN_FILE="$HOME/.secrets/jhtdb_token"
+python3 deploy.py --stage setup --data-root "$DATA_ROOT" --token-file "$TOKEN_FILE"
+# 确认上一条成功后继续
+PYTHON=.venv-mac/bin/python
+CONFIG=configs/pipeline.macos.yaml
 ```
 
-Windows PowerShell：
+Linux / Pitt CRC：环境入口位于项目的 `.venv-linux`，数据根目录使用持久存储。
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-python --version
-deactivate
+```bash
+cd /ix/lfang/xig134/JHTDB_LOCAL
+DATA_ROOT=/ix/lfang/persistent
+TOKEN_FILE="$HOME/.secrets/jhtdb_token"
+python3 deploy.py --stage setup --data-root "$DATA_ROOT" --token-file "$TOKEN_FILE"
+# 确认上一条成功后继续
+PYTHON=.venv-linux/bin/python
+CONFIG=configs/pipeline.linux.crc.yaml
 ```
 
-如果 PowerShell 禁止当前用户执行激活脚本，只对当前窗口临时放开：
+通用 Linux 可选择自己的 `DATA_ROOT`，并准备匹配本机资源的主配置。`--data-root` 不改变虚拟环境位置；CRC 已有 `.venv-linux` 若是指向持久目录的符号链接，部署会复用其解释器。不要将永久环境建在 job 的临时 scratch 中。
+
+<a id="token-file"></a>
+
+### 2. 首次保存 token 文件
+
+已有有效文件时跳过。这里保存你已有的 **JHTDB token**；不涉及 SSH token。文件内容不写进命令历史或 YAML。首次安装时指定的 token 路径可以暂时不存在。
+
+Windows / PowerShell：
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
+$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
+$Secret = Read-Host 'JHTDB token' -AsSecureString
+$TokenValue = [System.Net.NetworkCredential]::new('', $Secret).Password.Trim()
+if ([string]::IsNullOrWhiteSpace($TokenValue)) { throw '输入为空，未修改 token 文件' }
+New-Item -ItemType Directory -Force (Split-Path $TokenPath) | Out-Null
+[IO.File]::WriteAllText($TokenPath, $TokenValue + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+Remove-Variable TokenValue, Secret
+Remove-Item Env:JHTDB_TOKEN -ErrorAction SilentlyContinue
 ```
 
-### Windows / PowerShell：主流水线全流程
+macOS / Linux：使用第 1 步选定的虚拟环境解释器，隐藏输入并设置文件权限为 `600`。
 
-先检查 [Windows 配置](configs/pipeline.yaml) 的 `platform` 路径与磁盘空间。
+```bash
+"$PYTHON" - <<'PY'
+import getpass, os
+from pathlib import Path
+token = getpass.getpass('JHTDB token: ').strip()
+if not token:
+    raise SystemExit('输入为空，未修改 token 文件')
+path = Path.home() / '.secrets/jhtdb_token'
+path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w', encoding='utf-8') as f:
+    os.fchmod(f.fileno(), 0o600)
+    f.write(token + '\n')
+PY
+unset JHTDB_TOKEN
+```
+
+token 只需录入一次，更新 token 时重做此步。CLI 优先读取非空 `JHTDB_TOKEN`，其次读取 YAML 的 `auth.token_file`；上面的清除环境变量命令让后续使用文件。自定义 token 位置时，录入路径、`--token-file` 和实际运行 YAML 的 `auth.token_file` 必须一致。macOS/Linux 会拒绝组或其他用户具有权限的 token 文件。
+
+### 3. 确认储存路径，再做本地检查
+
+`deploy.py` 每次运行都会从 `configs/pipeline.yaml` 重新生成 `<data-root>/pipeline.yaml`，只替换路径和 token 文件位置。它不会自动采用 macOS 的磁盘 FFT 参数或 CRC 的资源配置。**不要长期修改这个生成文件来保存资源设置**；需要调整时复制为本机独立 YAML，再用 `--config` 指定。
+
+| 内容 | Windows/macOS 默认位置 | Pitt CRC 本文方案 |
+|---|---|---|
+| Python 环境 | `.venv-windows/` / `.venv-mac/` | `.venv-linux/`（可为持久目录链接） |
+| token 文件 | 用户主目录下 `.secrets/jhtdb_token` | `$HOME/.secrets/jhtdb_token` |
+| deploy 生成的 YAML | `.local/pipeline.yaml` | `/ix/lfang/persistent/pipeline.yaml` |
+| 原始输入、catalog、manifest | `.local/state/` | `/ix/lfang/persistent/state/` |
+| 主计算工作文件 | `.local/runs/` | `/vast/lfang/xig134/JHTDB_CRC/runs/` |
+| 主计算正式结果 | `.local/results/` | `/ix/lfang/xig134/JHTDB_CRC/results/` |
+| QPower 输出 | `qpower_analysis/output/`（使用 deploy 时） | `/ix/lfang/xig134/JHTDB_CRC/qpower/`（使用 CRC JSON 时） |
+
+Windows/macOS 使用其他 `--data-root` 时，生成配置的 state/runs/results 随之改变；**QPower 的 deploy 输出仍在项目 `qpower_analysis/output/`**。macOS 主流程的 `configs/pipeline.macos.yaml` 默认指向 `.local`，换盘时须另存本机 YAML 并同步三个 `platform` 路径。CRC 必须显式使用 `configs/pipeline.linux.crc.yaml` 和 `qpower_analysis/config.linux.crc.json`，才能采用上表的 `/vast` 工作区和独立结果目录；只给 deploy 传 `/ix/lfang/persistent` 不会启用这些路径。
+
+Windows 使用第 1 步的 `$Python`、`$Config`：
 
 ```powershell
-py -3 -m venv .venv
-$Python = ".\.venv\Scripts\python.exe"
-& $Python -m pip install -e ".[dev]"
-# 隐藏输入 token，仅注入当前进程；不要把真实 token 写进命令或 YAML。
-$Secret = Read-Host "JHTDB token" -AsSecureString
-$env:JHTDB_TOKEN = [System.Net.NetworkCredential]::new("", $Secret).Password
-$Config = "configs/pipeline.yaml"
 & $Python -m jhtdb_pipeline auth status --config $Config
+if ($LASTEXITCODE -ne 0) { throw '认证配置检查失败' }
 & $Python -m jhtdb_pipeline doctor --time-index 1 --config $Config
-& $Python -m jhtdb_pipeline plan --time-index 1 --config $Config
-& $Python -m jhtdb_pipeline smoke --time-index 1 --config $Config
-& $Python -m jhtdb_pipeline cache --time-index 1 --config $Config
-& $Python -m jhtdb_pipeline validate-input --time-index 1 --config $Config
-& $Python -m jhtdb_pipeline process-batch --time-index 1 --config $Config
+if ($LASTEXITCODE -ne 0) { throw '本地检查失败' }
+```
+
+macOS/Linux 使用第 1 步的 `PYTHON`、`CONFIG`；CRC 先按下文设置线程与缓存变量：
+
+```bash
+"$PYTHON" -m jhtdb_pipeline auth status --config "$CONFIG" &&
+"$PYTHON" -m jhtdb_pipeline doctor --time-index 1 --config "$CONFIG"
+```
+
+这些检查不下载科学数据；`doctor` 会检查依赖、路径可写性等。`auth status` 只报告 token 来源，不能证明在线认证有效，后续 `smoke` 才会请求服务。
+
+### 4. 下次打开终端或新 Slurm job
+
+进入同一个项目目录，重新设置命令所需的 shell 变量即可。环境和 token 文件仍在；`PYTHON`/`CONFIG` 等变量只属于当前终端。
+
+| 系统 | 直接调用的解释器 | 默认主配置 |
+|---|---|---|
+| Windows | `.\.venv-windows\Scripts\python.exe` | `.local/pipeline.yaml` 或你另存的本机 YAML |
+| macOS | `.venv-mac/bin/python` | `configs/pipeline.macos.yaml` |
+| Pitt CRC Linux | `.venv-linux/bin/python` | `configs/pipeline.linux.crc.yaml` |
+
+激活可选：Windows 用 `.\.venv-windows\Scripts\Activate.ps1`，macOS 用 `source .venv-mac/bin/activate`，Linux 用 `source .venv-linux/bin/activate`；退出用 `deactivate`。直接调用表中解释器无需激活，也无需调整 PowerShell 执行策略。旧 Windows 包装脚本使用 `.venv`，与 deploy 创建的 `.venv-windows` 不同；下面统一直接调用 Python。
+
+已有环境再调用 deploy 时加 `--skip-install`，并保持相同 `--data-root`、`--token-file`；需要更新依赖时重新执行 `--stage setup`，复用原环境进行安装。[部署细节与分阶段命令](docs/deployment.md)。
+
+## 部署完成后：主 pipeline
+
+以下命令会下载或计算，按资源条件选择执行。完整速度输入约 12 GiB，五尺度结果加共享梯度及输入未压缩约 126.5 GiB，另需 FFT 缓存、工作区与安全余量，以 `plan`/预检为准。默认 sigma 为 `10 15 30 55 75`，smooth-sharp 的 `alpha=w/k_c=0.1171875`，`process-batch` 串行复用共享缓存。
+
+### Windows / PowerShell
+
+部署使用默认 `.local` 时：
+
+```powershell
+$Python = '.\.venv-windows\Scripts\python.exe'
+$Config = '.local/pipeline.yaml'
+$TimeIndex = 1
+# 保存本机资源调整时，先复制为独立 YAML，并将 $Config 改为该文件。
+# 生成配置沿用 RAM FFT / 16 FFT worker / 8 压缩线程；先确认本机资源足够。
+foreach ($Stage in @('doctor', 'plan', 'smoke', 'cache', 'validate-input', 'process-batch')) {
+    & $Python -m jhtdb_pipeline $Stage --time-index $TimeIndex --config $Config
+    if ($LASTEXITCODE -ne 0) { throw "$Stage 失败，停止后续流程" }
+}
 & $Python -m jhtdb_pipeline status --config $Config
+if ($LASTEXITCODE -ne 0) { throw 'status 失败' }
 & $Python -m jhtdb_pipeline gui --config $Config --port 8501
 ```
 
-逐条检查退出码，失败时停止后续命令。已安装环境可跳过创建和安装。主功能串行流程见 [scripts README](scripts/README.md)。
+Windows RAM FFT 的共享缓存本身约 84.09 GiB，完整峰值更高。内存不足时先调整独立本机配置，不能只减少线程。自定义数据目录时 `$Config` 应指向该目录的配置。
 
-### macOS / zsh 或 bash：主流水线全流程
+### macOS / zsh 或 bash
 
-帧号只在 `TIME_INDEX` 一处设置；下面以第 500 帧为例。已有环境和 token 配置时可跳过创建、安装和 token 录入。
+24 GB Mac 使用已有磁盘 FFT 配置，完整域峰值尚未实测；空间规划见 [macOS 资源方案](docs/macos_main_pipeline_run.md)。
 
 ```bash
-python3 -m venv .venv-mac
-.venv-mac/bin/python -m pip install -e '.[dev]'
-# getpass 隐藏输入；export 让后续 Python 进程读取。
-export JHTDB_TOKEN="$(.venv-mac/bin/python -c 'import getpass; print(getpass.getpass("JHTDB token: "))')"
 PYTHON=.venv-mac/bin/python
 CONFIG=configs/pipeline.macos.yaml
 TIME_INDEX=500
-"$PYTHON" -m jhtdb_pipeline auth status --config "$CONFIG" &&
 "$PYTHON" -m jhtdb_pipeline doctor --time-index "$TIME_INDEX" --config "$CONFIG" &&
 "$PYTHON" -m jhtdb_pipeline plan --time-index "$TIME_INDEX" --config "$CONFIG" &&
 "$PYTHON" -m jhtdb_pipeline smoke --time-index "$TIME_INDEX" --config "$CONFIG" &&
 "$PYTHON" -m jhtdb_pipeline cache --time-index "$TIME_INDEX" --config "$CONFIG" &&
 "$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG" &&
+caffeinate -i "$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG" &&
 "$PYTHON" -m jhtdb_pipeline status --config "$CONFIG" &&
 "$PYTHON" -m jhtdb_pipeline gui --config "$CONFIG" --port 8501
 ```
 
-逐条执行，失败即停。GUI 地址 `http://127.0.0.1:8501`。默认 sigma 为 `10 15 30 55 75`，smooth-sharp 的 `alpha=w/k_c=0.1171875`。`process-batch` 顺序复用共享梯度与频谱，不要另开并行 sigma 任务。
-命令间的 `&&` 确保失败后停止后续步骤。上面的流程直接调用 `process-batch`，所有帧相关命令显式使用同一个 `TIME_INDEX`，换帧只需修改变量。macOS 上可在主计算命令前加 `caffeinate -i` 防止空闲睡眠。可选包装脚本 `bash scripts/run_main_macos.sh "$TIME_INDEX"` 内置此功能；不传位置参数时默认第 1 帧，不会继承前一条 Python 命令的 `--time-index`。
+换帧只改 `TIME_INDEX`；使用其他数据盘时将 `CONFIG` 改为路径已调整的本机 YAML。GUI 地址 `http://127.0.0.1:8501`。可选包装脚本见 [scripts README](scripts/README.md)，其默认帧号为 1，必须显式传入需要的帧号。
 
-### Linux
+### Linux / Pitt CRC
 
-Pitt CRC 直接使用原有函数和 CLI，配合 [Linux RAM 配置](configs/pipeline.linux.crc.yaml)
-及 [QPower 配置](qpower_analysis/config.linux.crc.json)。主流程建议单节点、单任务
-**32 CPU / 160G / 12 小时**；已有 float32 压力梯度的 QPower 建议
-**16 CPU / 96G / 6 小时**。192G 是额外留余量的选择，并非最低要求；128G 尚未实测。
-当前 64 GB allocation 放不下约 84.09 GiB 的主流程共享 RAM 缓存，需要申请更大资源。
-walltime 为首次申请建议，不是已测完成时间。
+主流程建议单节点、单任务 **32 CPU / 160G / 12 小时**；已有 float32 梯度的 QPower 建议 **16 CPU / 96G / 6 小时**。192G 是额外余量，并非最低要求；128G 尚未实测。当前 16 CPU / 64 GB / 3 小时可部署环境，但放不下约 84.09 GiB 的主共享 RAM 缓存。walltime 为申请建议，不是已测完成时间。
 
-完整 [Linux 资源方案](docs/linux_crc_run.md) 给出 Slurm 申请、所有资源设置、存储规划、
-下载/FD4 分阶段命令及后处理。没有新增 Linux Python 入口或运行脚本，Python 源码保持原样。
-
-已有环境与输入时，在新 allocation 中设置环境变量，再调用原有入口：
+新 allocation 中在任何科学 Python 命令前设置：
 
 ```bash
 cd /ix/lfang/xig134/JHTDB_LOCAL
@@ -131,7 +213,6 @@ PYTHON=.venv-linux/bin/python
 CONFIG=configs/pipeline.linux.crc.yaml
 QCONFIG=qpower_analysis/config.linux.crc.json
 TIME_INDEX=1
-
 export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OMP_DYNAMIC=FALSE
 export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_DYNAMIC=FALSE
 export BLIS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
@@ -140,44 +221,48 @@ export TMPDIR=/vast/lfang/xig134/JHTDB_CRC/tmp
 export XDG_CACHE_HOME=/ix/lfang/xig134/JHTDB_CRC/cache
 export MPLCONFIGDIR="$XDG_CACHE_HOME/matplotlib"
 mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
+```
 
-# 主 pipeline：本地校验与五尺度 RAM 计算，不自动下载
+已有完整速度输入时，主流程只做本地验证与五尺度计算：
+
+```bash
 "$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
 "$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG"
+```
 
-# 已有压力时求本地 FD4；已有梯度可跳过此条
+首次下载、FD4、Slurm 申请和后处理的完整命令见 [Linux 资源方案](docs/linux_crc_run.md)。配置为 FFT 24 worker、压缩 4 线程、slab 16；顺序运行两个 pipeline。使用原有 CLI，没有额外 Linux Python 入口或运行脚本。
+
+## 部署完成后：压力 / QPower pipeline
+
+`deploy.py --stage all` 会安装或复用环境、检查、在线 smoke、下载速度与压力、保存本地周期 FD4 梯度并运行 QPower；**不运行主 pipeline 的多 sigma 滤波与能量传输计算**。QPower 全域 float32 输入加载就约 24 GiB，另需统计内存，24 GB Mac 应只下载，再迁移至足够内存的机器分析。
+
+Windows / PowerShell，沿用首次部署的数据和 token 路径：
+
+```powershell
+$DataRoot = '.local'
+$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
+py -3 deploy.py --stage all --skip-install --data-root $DataRoot --token-file $TokenPath
+```
+
+macOS，以下全流程仅适用于内存足够的机器：
+
+```bash
+python3 deploy.py --stage all --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
+```
+
+只有下载时将 `all` 改为 `download`；已有完整速度和压力时改为 `qpower`。完整选项、输出位置与后台运行见 [部署手册](docs/deployment.md)。
+
+Pitt CRC 使用专用 YAML/JSON 保持 `/ix` 与 `/vast` 分工；沿用上面的 Linux shell 变量：
+
+```bash
+# 已有压力时计算 FD4；已有完整梯度可跳过这一条
 "$PYTHON" -m jhtdb_pipeline.pressure_local --stage gradient --block-size 64 \
   --time-index "$TIME_INDEX" --config "$CONFIG" &&
 "$PYTHON" -m qpower_analysis.qpower_analysis --config "$QCONFIG" --preflight-only &&
 "$PYTHON" -u -m qpower_analysis.qpower_analysis --config "$QCONFIG"
 ```
 
-主配置使用 FFT 24 worker、压缩 4 线程、slab 16，磁盘余量各 32 GiB；
-BLAS/OpenMP 等在 shell 中限制为 1 线程。QPower 保留原有整帧 RAM 读入和 numcodecs
-最多 8 线程的默认值，配置为单帧；两条流程、下载和 FD4 顺序执行。
-QPower JSON 默认第 1 帧；换帧时也需同步修改 JSON 的 frame、time 和输入路径。
-原始缓存保留 `/ix/lfang/persistent/state`，结果集中到 `/ix/lfang/xig134/JHTDB_CRC`，
-原有工作文件及 TMPDIR 配置到 `/vast/lfang/xig134/JHTDB_CRC`。
-本次没有执行这些命令或创建外部数据目录。首次环境安装见[系统迁移](docs/system_migration.md)。
-其他 Linux 环境按本机资源修改配置；macOS 的 `caffeinate` 包装脚本仅用于 macOS。
-
-## Token 持久化与压力/QPower 全流程
-
-CLI 优先读取 `JHTDB_TOKEN`，其次读取 YAML `auth.token_file` 指定的单行文件。POSIX 文件权限必须 `600` 或更严格。`auth status` 只说明来源已配置，在线 `smoke` 才能验证实际服务访问。文件路径和安全录入步骤见 [迁移手册](docs/system_migration.md)。
-
-macOS：
-
-```bash
-python3 deploy.py --stage all --data-root .local
-```
-
-Windows：
-
-```powershell
-py -3 deploy.py --stage all --data-root .local
-```
-
-通用 Linux 使用 `python3 deploy.py --stage all --data-root .local`。该入口创建本机环境、注入本机路径、doctor、smoke、下载完整速度与压力、保存周期 FD4 梯度，最后执行 QPower；**不运行多 sigma 主计算**。仅下载用 `--stage download`；之后 `--stage qpower --skip-install` 计算梯度并分析。完整 QPower 仅输入加载就约 24 GiB，24 GB Mac 应只下载，转到足够内存机器分析。[完整部署说明](docs/deployment.md)。Pitt CRC 按上面的 Linux 章节显式指定专用配置；原有 `deploy.py` 不会自动采用这些 Linux 资源参数。
+CRC JSON 默认第 1 帧，换帧须同步修改 frame、time 和输入路径，不能只修改 `TIME_INDEX`。下载命令及顺序 I/O 方案见 [Linux 资源方案](docs/linux_crc_run.md)。
 
 ## 两个 pipeline
 

@@ -1,8 +1,18 @@
 # Pitt CRC Linux：使用原有入口运行两个 pipeline
 
 本方案只增加 Linux 配置与运行说明，不新增 Python 函数或运行脚本。
-从 `/ix/lfang/xig134/JHTDB_LOCAL` 执行原有 CLI，使用已有 `.venv-linux/bin/python`。
-没有执行 pipeline、下载、全域计算或性能基准。
+从 `/ix/lfang/xig134/JHTDB_LOCAL` 执行原有 CLI，使用 `.venv-linux/bin/python`。
+首次环境部署、token 文件录入及下次 job 的环境复用统一见
+[根 README](../README.md#first-deployment)。仅安装环境的命令是：
+
+```bash
+cd /ix/lfang/xig134/JHTDB_LOCAL
+python3 deploy.py --stage setup --data-root /ix/lfang/persistent --token-file "$HOME/.secrets/jhtdb_token"
+```
+
+此命令生成 `/ix/lfang/persistent/pipeline.yaml`，供 deploy 自身使用；本页运行命令显式指定
+CRC YAML/JSON，它们才采用下文的线程参数和 `/vast` 路径。环境安装不会创建 token 内容。
+环境可在当前 16 CPU / 64 GB allocation 中安装；全域 RAM 计算需要下文更大的资源。
 
 ## 推荐 Slurm 资源
 
@@ -139,7 +149,7 @@ mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
   --time-index "$TIME_INDEX" --config "$CONFIG"
 ```
 
-仅下载需要 token，读取 `JHTDB_TOKEN` 或配置中的 `${HOME}/.secrets/jhtdb_token`。
+下载需要 token；主流程的 `doctor` 也要求已配置 token 来源。读取 `JHTDB_TOKEN` 或配置中的 `${HOME}/.secrets/jhtdb_token`。
 下载、FD4、主计算和 QPower 分阶段顺序执行。原有 `deploy.py` 保持原样，它会生成自身的
 本机配置，不会自动采用这里的 Linux 参数；CRC 按上述命令显式指定配置。
 
@@ -167,5 +177,5 @@ C++ 引擎为单线程；半径增大可能扩大 offset 列表并延长运行�
 跨 job 保存。FD4 保持原有逐块校验与续算。QPower 没有逐步骤 checkpoint，中断的 run
 不视为完成。后台运行不能延长 Slurm walltime。
 
-本次只检查配置解析、科学参数一致性、文档链接和命令参数，所有 Python 源码已恢复。
-没有运行 doctor/smoke、输入遍历、下载、pipeline、后处理或全域基准。
+本方案的资源估算来自源码与配置检查，未做 Linux 全域性能基准。
+实际运行时仍须检查 Slurm allocation、磁盘空间、输入验证与最终 QA。

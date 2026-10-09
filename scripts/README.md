@@ -1,5 +1,10 @@
 # PowerShell 运行脚本
 
+首次持久部署与 token 文件统一见 [根 README](../README.md#first-deployment)。
+`deploy.py --stage setup` 创建的是 `.venv-windows`；本页旧 PowerShell 脚本固定使用 `.venv`，
+不会自动采用 `.venv-windows`。已按新教程部署时，直接使用根 README 的 Python CLI 命令。
+下列脚本保留原有环境约定，不作为新部署教程的必需步骤。
+
 ## `bootstrap_local.ps1`
 
 创建 `.venv`，安装项目及测试依赖，编译源码并运行测试：

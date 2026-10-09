@@ -2,6 +2,12 @@
 
 独立任务定义见 [TASK.md](TASK.md)。所有命令从项目根目录执行。
 
+环境与主 pipeline 共用。Windows/macOS/Linux 的首次持久部署、token 文件与数据路径
+统一见 [根 README](../README.md#first-deployment)，只安装用 `deploy.py --stage setup`。
+下面命令使用 deploy 创建的 `.venv-windows`；旧 `.venv` 仅属于旧 Windows 脚本环境。
+完整压力下载、本地 FD4 和 QPower 分阶段命令见 [部署手册](../docs/deployment.md)，
+CRC 的专用路径与资源见 [Linux 方案](../docs/linux_crc_run.md)。
+
 It computes
 
 `q = -(u*dPdx + v*dPdy + w*dPdz)` and `u2 = u*u + v*v + w*w`
@@ -26,11 +32,12 @@ single component-first array `(3, z, y, x)`. Pressure
 is `(z, y, x)`. Pressure gradients may be a component-first `(3, z, y, x)`
 array or three separate arrays. All fields must have the same finite 3-D shape.
 
-Copy `config.example.json`, set the paths and frame metadata, then run:
+Copy `config.example.json`, set the paths and frame metadata, then run with that configuration.
+The commands below name the example file; replace it with your saved configuration path:
 
 ```powershell
-.\.venv\Scripts\python.exe qpower_analysis\qpower_analysis.py --config qpower_analysis\config.example.json --preflight-only
-.\.venv\Scripts\python.exe qpower_analysis\qpower_analysis.py --config qpower_analysis\config.example.json
+.\.venv-windows\Scripts\python.exe qpower_analysis\qpower_analysis.py --config qpower_analysis\config.example.json --preflight-only
+.\.venv-windows\Scripts\python.exe qpower_analysis\qpower_analysis.py --config qpower_analysis\config.example.json
 ```
 
 The example points at the local velocity cache and the managed pressure-gradient
@@ -40,7 +47,7 @@ See `../docs/pressure_gradient_loading.md` for acquisition commands.
 Tests use small synthetic fields and do not need production data:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest qpower_analysis/tests -q
+.\.venv-windows\Scripts\python.exe -m pytest qpower_analysis/tests -q
 ```
 
 ## Analytic random-overlap baseline
@@ -59,7 +66,7 @@ conditioning set, or a ratio with a zero baseline, is reported as NaN.
 After a completed run, calculate full-grid contributions using bounded-memory reads:
 
 ```bash
-.venv-mac/bin/python qpower_analysis/threshold_contributions.py --run-dir qpower_analysis/output/<run-id>
+.venv-mac/bin/python qpower_analysis/threshold_contributions.py --run-dir 'qpower_analysis/output/<run-id>'
 ```
 
 On Windows use `.venv-windows\Scripts\python.exe` with the same script and arguments.
@@ -75,10 +82,11 @@ match `overlap_statistics.csv` exactly. No sampling or new download is performed
 ## Full-tail bidirectional conditional plots
 
 ```bash
-.venv-mac/bin/python qpower_analysis/conditional_tails.py --run-dir qpower_analysis/output/<run-id>
+.venv-mac/bin/python qpower_analysis/conditional_tails.py --run-dir 'qpower_analysis/output/<run-id>'
 ```
 
 Windows uses `.venv-windows\Scripts\python.exe` with identical arguments.
+Replace the quoted `<run-id>` placeholder with an actual completed QPower run directory.
 Outputs are in the run's `conditional_tails/` directory: PNG, PDF and CSV for both
 `q_given_u2` and `u2_given_q`, plus metadata. Inputs remain full-grid; no tail is
 excluded. The 2.5th and 97.5th percentiles are estimated by interpolating a
@@ -153,7 +161,7 @@ plus a near-zero bin; it is not a confidence interval. Hollow markers identify
 bins containing fewer than 100 cells. Counts must exactly match the existing q
 bins. PNG, CSV (raw and normalized magnitude), histogram NPZ and metadata JSON
 are saved in `gradient_statistics/` for each configured frame. The current figure
-is also embedded in [the offline image index](review_png/index.html).
+can also be viewed in the local offline image index `review_png/index.html` when that runtime artifact is present.
 
 ## 代码与验证导航
 

@@ -1,119 +1,158 @@
-# Windows / macOS 共用的一键部署入口
+# Windows / macOS / Linux：持久部署与压力流程
 
-运行环境要求：系统已安装 Python 3.9+，可以联网安装依赖，并已准备个人 JHTDB token。
-下载与计算均调用现有代码；原 Windows 脚本和配置继续可用。
+首次部署按 [根 README 的完整教程](../README.md#first-deployment) 顺序执行：
+**安装环境 → 保存 token 文件 → 确认路径 → 本地检查**。两个 pipeline 共用环境；
+本页补充 deploy 的路径规则、阶段边界和续跑方式。系统需要 Python 3.9+，安装时需要联网。
 
-## 一键安装、下载并执行 QPower
+## 一键部署环境，首次执行
 
-在项目根目录执行，macOS：
+从项目根目录选择对应系统的命令。此阶段无需已有 token 内容，只记录文件路径；
+不会下载科学数据或执行 pipeline。安装成功后按 [token 文件步骤](../README.md#token-file)
+隐藏录入已有的 JHTDB token。
 
-```bash
-python3 deploy.py
-```
-
-Windows PowerShell：
+Windows / PowerShell：
 
 ```powershell
-py -3 deploy.py
+$DataRoot = '.local'
+$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
+py -3 deploy.py --stage setup --data-root $DataRoot --token-file $TokenPath
 ```
 
-同一入口自动创建本机虚拟环境、安装 `.[dev]`、检查依赖、从
-`configs/pipeline.yaml` 生成本机路径配置，执行 doctor 和速度在线 smoke，
-然后串行下载并校验第 1 帧（t=0）的完整 `1024³` 速度与标量压力场，
-all 阶段同时对邻域已齐全的块计算并保存周期四阶中心差分压力梯度，最后执行 QPower。macOS 运行阶段使用 `caffeinate -i`。
-不计算速度梯度。失败立即停止后续步骤。仅需下载时加 `--stage download`。
-
-长时间运行可使用后台模式（Windows 同样将 `python3` 换为 `py -3`）：
+macOS：
 
 ```bash
-python3 deploy.py --background
+python3 deploy.py --stage setup --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
 ```
 
-后台进程独立于终端，日志写入 `<data-root>/deploy.log`，PID 写入
-`<data-root>/deploy.pid`。启动消息只表示进程已创建；日志中出现
-`Completed stage: all` 才代表全流程成功。`--wait-lock` 可等待同一数据目录的
-已有任务结束，随后复用经过校验的缓存。macOS 可用 `tail -f .local/deploy.log`
-查看日志，Windows 可用 `Get-Content .local\deploy.log -Wait`。
-
-## Token
-
-依次支持环境变量 `JHTDB_TOKEN`、`--token-file` 指定文件、项目中的
-`.secrets/jhtdb_token`、用户主目录中的 `.secrets/jhtdb_token`。
-文件只有一行 token；macOS 文件权限应为 `600`。token 内容不会写入生成的配置。
+Linux / Pitt CRC：
 
 ```bash
-python3 deploy.py --token-file /绝对路径/jhtdb_token
+cd /ix/lfang/xig134/JHTDB_LOCAL
+python3 deploy.py --stage setup --data-root /ix/lfang/persistent --token-file "$HOME/.secrets/jhtdb_token"
 ```
 
-Windows 可以使用 `py -3 deploy.py --token-file C:\你的路径\jhtdb_token`。
+`setup` 创建或复用环境，安装 `.[dev]` 并执行 `pip check`，最后生成本机 YAML。
+**省略 `--stage` 默认运行 `all`，包含下载和计算，不能用作仅安装环境的命令。**
 
-## 共用代码，本机环境
+## 永久保存什么，下次如何复用
 
-Git 同步 `deploy.py`、依赖声明、源码和文档。以下内容由各机器独立生成，已被忽略：
-
-| 本机内容 | 位置 |
+| 内容 | 实际位置 / 行为 |
 |---|---|
-| macOS 虚拟环境 | `.venv-mac/` |
-| Windows 虚拟环境 | `.venv-windows/` |
-| 原 Windows 虚拟环境 | `.venv/` |
-| token | `.secrets/` 或用户主目录 |
-| 本机配置、输入数据、日志 | `.local/` |
+| Windows 环境 | 项目 `.venv-windows/`；旧 PowerShell 包装脚本使用另一目录 `.venv/` |
+| macOS 环境 | 项目 `.venv-mac/` |
+| Linux 环境 | 项目 `.venv-linux/`；已有持久目录链接会被复用 |
+| token 文件 | 本文显式指定用户主目录的 `.secrets/jhtdb_token`，安装命令不写入内容 |
+| 本机配置 | `<data-root>/pipeline.yaml`，每次调用 deploy 都重新生成 |
+| 输入与状态 | `<data-root>/state/`，含 inputs、catalog、manifest、QA 和锁 |
+| 主工作区 / 主结果 | 生成 YAML 中分别为 `<data-root>/runs/`、`<data-root>/results/` |
+| QPower 配置 | `qpower` / `all` 阶段生成 `<data-root>/qpower.json` |
+| QPower 输出 | 项目 `qpower_analysis/output/<运行时间>/`，不随 `--data-root` 移动 |
+| 部署锁 | `<data-root>/deploy.lock` |
+| 后台日志 / PID | 使用 `--background` 时生成 `<data-root>/deploy.log` 和 `deploy.pid` |
 
-虚拟环境不可跨系统复制。两个系统安装同一 `pyproject.toml` 声明的依赖范围，
-各自获取适配本机的包；不保证不同安装时间解析出的版本完全一致。
-若工作目录还受云盘同步，请另外在云盘客户端排除上述目录；`.gitignore` 只控制 Git。
+关闭终端、重启电脑或结束 Slurm job 不会主动删除环境和 token 文件。
+下次进入同一个项目目录，直接调用对应环境的 Python 即可；激活只影响当前终端。
+使用 deploy 续跑时加 `--skip-install`，避免重复安装，继续传原来的数据与 token 路径。
+更新依赖时重做 `--stage setup`，会在原环境中安装，不另建环境。
 
-可将数据放到外置盘：
+`--data-root` 默认为项目 `.local/`，不改变环境和 token 位置。可改成外置盘或持久盘的
+绝对路径，例如 macOS 的 `/Volumes/Data/JHTDB`、Windows 的 `D:\JHTDB`。
+安装和后续每次调用必须使用同一根目录，才能复用同一套缓存。
+editable 安装依赖项目源码，移动项目或更换基础 Python 后应重新部署；环境不能跨系统复制。
+
+生成 YAML 的来源固定为 `configs/pipeline.yaml`，只替换 platform 与 token 路径，
+保留该模板的 RAM FFT、线程等参数。它不读取 `configs/pipeline.macos.yaml` 或 CRC 配置。
+需要持久保存自定义参数时另存本机 YAML，用现有 CLI 的 `--config` 运行；
+deploy 没有接受该独立 YAML 的参数。macOS 主计算和 CRC 两条 pipeline 的命令见
+[根 README](../README.md)、[macOS 资源方案](macos_main_pipeline_run.md)、
+[CRC 资源方案](linux_crc_run.md)。CRC 专用配置将工作文件放在 `/vast`，
+直接调用 deploy 则仍使用 `<data-root>/runs`，两者路径不同。
+
+Git 不保存环境、token 和 `.local` 运行目录；`output/` 运行目录默认被忽略，
+其中 Markdown 报告按仓库规则可被跟踪。若使用云盘同步，还需在客户端排除环境、token
+和活动数据库；`.gitignore` 不控制云盘。依赖声明锁定范围，不保证不同时间安装的版本完全一致。
+
+## Token 路径与读取优先级
+
+录入命令统一放在 [根 README](../README.md#token-file)，避免不同文档使用不同位置。
+文件为一行 token，macOS/Linux 权限必须为 `600` 或更严格，Windows 使用用户自己的私有目录。
+安装只将路径写进 YAML，不会生成 token 内容，也不是 SSH 认证配置。
+
+deploy 的文件路径选择：指定 `--token-file` 时使用该路径；未指定时，项目
+`.secrets/jhtdb_token` 若存在则使用它，否则选择用户主目录 `.secrets/jhtdb_token`。
+随后 CLI 仍优先读取非空环境变量 `JHTDB_TOKEN`，再读取所选文件。
+显式指定了不存在的文件时不会自动回退到其他文件。
+`auth status` 仅报告来源，`doctor` 是本地环境/路径检查，在线 `smoke` 才会请求服务。
+
+## 分阶段执行：环境已经安装以后
+
+| `--stage` | 行为 | 下载科学数据 | 全域计算 |
+|---|---|---|---|
+| `setup` | 安装依赖、生成路径 YAML | 否 | 否 |
+| `check` | 生成 YAML、doctor | 否 | 否 |
+| `velocity` | doctor、速度 smoke、速度下载与校验 | 是 | 否 |
+| `download` | doctor、速度 smoke、速度与标量压力下载/校验 | 是 | 否 |
+| `qpower` | 从已有压力计算/复用 FD4 梯度，生成 JSON、preflight、QPower | 否 | 是 |
+| `all`（默认） | 检查、速度与压力下载、FD4、QPower | 是 | 是 |
+
+所有阶段都不运行主 pipeline 的多 sigma 滤波与能量传输计算。
+`download` 不求压力梯度；`all` 的压力下载与本地 FD4 会重叠，最终验证通过后才进入 QPower。
+默认第 1 帧（t=0），`--time-index 7` 可换帧；stage `qpower` 要求已有完整速度和压力。
+
+macOS 示例：以下是按需要选择的命令，并非首次部署时全部执行。
+更改过数据目录时，将每条命令的 `.local` 改为同一个目录。
 
 ```bash
-python3 deploy.py --data-root /Volumes/Data/JHTDB
+# 本地检查
+python3 deploy.py --stage check --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
+
+# 只下载速度
+python3 deploy.py --stage velocity --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
+
+# 下载速度和标量压力，不计算梯度或 QPower
+python3 deploy.py --stage download --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
+
+# 已有速度和压力，计算/复用 FD4 梯度并执行 QPower
+python3 deploy.py --stage qpower --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
+
+# 检查 → 下载 → FD4 → QPower，要求内存足够
+python3 deploy.py --stage all --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
 ```
 
-再次运行必须使用相同 `--data-root`；默认数据目录为项目 `.local/`。
-完整速度、压力、压力梯度未压缩分别约 12、4、12 GiB，合计 28 GiB；
-写入前还要求保留配置中的 24 GiB 空间余量。
+Windows / PowerShell 示例：
 
-## 分阶段、续传与 QPower
+```powershell
+$DataRoot = '.local'
+$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
+py -3 deploy.py --stage download --skip-install --data-root $DataRoot --token-file $TokenPath
+```
 
-以下命令在 Windows 上将 `python3` 换为 `py -3`：
+按需要将 `download` 改为表中其他阶段，检查退出码，失败后停止。
+通用 Linux 可使用相同的 `python3 deploy.py` 参数；**Pitt CRC 的下载和计算应按
+[专用资源方案](linux_crc_run.md) 显式传入 Linux 配置**，保持线程、内存与 `/vast` 路径规划。
+
+QPower 使用原有全数组实现，float32 速度和梯度加载本身约 24 GiB，另需统计及可视化内存。
+24 GB Mac 应只下载，再按 [迁移手册](system_migration.md) 将完整 state 迁移到内存足够的机器。
+完整速度、压力、FD4 梯度未压缩分别约 12、4、12 GiB，合计 28 GiB，另需磁盘安全余量。
+
+## 后台运行与续跑
+
+token 文件需预先录入。已有环境时，macOS 示例：
 
 ```bash
-# 只创建环境和本机配置
-python3 deploy.py --stage setup
-
-# 检查环境、路径和 token 是否配置；不请求科学数据
-python3 deploy.py --stage check --skip-install
-
-# 基础输入流程：只下载速度，不需要压力梯度
-python3 deploy.py --stage velocity --skip-install
-
-# 复用环境并继续下载速度和标量压力；download 阶段不计算梯度
-python3 deploy.py --stage download --skip-install
-
-# 指定另一帧
-python3 deploy.py --stage download --time-index 7 --skip-install
-
-# 用已下载的压力计算/复用本地 FD4 梯度，再执行 QPower
-python3 deploy.py --stage qpower --skip-install
-
-# 环境配置 → 速度与压力下载/校验 → 保存 FD4 梯度 → QPower
-python3 deploy.py --stage all
+python3 deploy.py --stage download --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token" --background
 ```
 
-`qpower` 使用现有全数组实现，不会改成子域或分块算法；输入加载本身约 24 GiB，
-另需统计和可视化内存，因此 24 GiB RAM 的 Mac 不适合运行完整域 QPower。
-可在 Mac 完成下载后，将数据目录复制到有足够内存的 Windows 机器，通过
-`--data-root` 指向该目录并运行 `--stage qpower`，入口会重新生成本机路径配置。
-QPower 输出在项目的 `qpower_analysis/output/<运行时间>/`，不计算速度梯度。
-该输出目录沿用项目已有结果管理方式，不属于 `.local/` 的忽略范围。
+Windows 使用 `py -3` 并显式传相同的数据与 token 路径。后台标准输入关闭，不能交互录入 token。
+日志写入 `<data-root>/deploy.log`，PID 写入 `<data-root>/deploy.pid`。
+启动消息只表示进程创建；日志中的 `Completed stage: download` 才说明该阶段成功。
+`setup` 成功时输出环境与本机配置路径，不打印 `Completed stage: setup`。
+`--wait-lock` 可等待相同 data-root 的已有 deploy 结束，随后校验并复用缓存。
+macOS 可用 `tail -f .local/deploy.log`，Windows 用 `Get-Content .local\deploy.log -Wait`。
+后台运行不能延长 Slurm allocation 的 walltime，也不保证电脑休眠或关机后继续运行。
+macOS 的 deploy 运行阶段使用 `caffeinate -i` 防止空闲睡眠。
 
-验证部署所调用的现有功能：
-
-```bash
-.venv-mac/bin/python -m pytest tests/test_deploy.py tests/test_pressure_gradient.py qpower_analysis/tests -q
-```
-
-Windows 使用 `.venv-windows\Scripts\python.exe -m pytest` 和相同测试路径。
+轻量合成测试的维护命令见 [文档维护](maintenance.md)；首次部署不要求执行生产流程或完整测试集。
 
 ## 压力场与持久化压力梯度
 
