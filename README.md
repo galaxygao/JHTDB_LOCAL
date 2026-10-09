@@ -15,6 +15,7 @@
 | [当前数据格式](docs/data_versions.md) | v7/v8/v9 字段、采样坐标、shape、dtype、布局与读取规则 |
 | [部署与压力流程](docs/deployment.md) | `deploy.py` 分阶段运行、后台日志、本地 FD4、QPower |
 | [macOS 内存与磁盘方案](docs/macos_main_pipeline_run.md) | memmap、线程与资源限制 |
+| [Pitt CRC Linux 资源方案](docs/linux_crc_run.md) | 两个 pipeline 的 Slurm 资源、RAM 缓存、线程、路径与原有运行命令 |
 | [服务端压力梯度入口](docs/pressure_gradient_loading.md) | 独立 `fd4noint` 数据源，与本地 FD4 区分 |
 | [代码逐函数索引](docs/code_reference.md) | 每个模块、函数签名、源码位置、调用与异常；子项目有独立索引 |
 | [文档维护与校验](docs/maintenance.md) | 更新命令、回归范围、目录责任 |
@@ -112,25 +113,53 @@ TIME_INDEX=500
 
 ### Linux
 
+Pitt CRC 直接使用原有函数和 CLI，配合 [Linux RAM 配置](configs/pipeline.linux.crc.yaml)
+及 [QPower 配置](qpower_analysis/config.linux.crc.json)。主流程建议单节点、单任务
+**32 CPU / 160G / 12 小时**；已有 float32 压力梯度的 QPower 建议
+**16 CPU / 96G / 6 小时**。192G 是额外留余量的选择，并非最低要求；128G 尚未实测。
+当前 64 GB allocation 放不下约 84.09 GiB 的主流程共享 RAM 缓存，需要申请更大资源。
+walltime 为首次申请建议，不是已测完成时间。
+
+完整 [Linux 资源方案](docs/linux_crc_run.md) 给出 Slurm 申请、所有资源设置、存储规划、
+下载/FD4 分阶段命令及后处理。没有新增 Linux Python 入口或运行脚本，Python 源码保持原样。
+
+已有环境与输入时，在新 allocation 中设置环境变量，再调用原有入口：
+
 ```bash
-python3 -m venv .venv-linux
-.venv-linux/bin/python -m pip install -e '.[dev]'
-cp configs/pipeline.macos.yaml configs/pipeline.linux.local.yaml
-export JHTDB_TOKEN="$(.venv-linux/bin/python -c 'import getpass; print(getpass.getpass("JHTDB token: "))')"
+cd /ix/lfang/xig134/JHTDB_LOCAL
 PYTHON=.venv-linux/bin/python
-CONFIG=configs/pipeline.linux.local.yaml
-"$PYTHON" -m jhtdb_pipeline auth status --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline doctor --time-index 1 --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline plan --time-index 1 --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline smoke --time-index 1 --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline cache --time-index 1 --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline validate-input --time-index 1 --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline process-batch --time-index 1 --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline status --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline gui --config "$CONFIG" --port 8501
+CONFIG=configs/pipeline.linux.crc.yaml
+QCONFIG=qpower_analysis/config.linux.crc.json
+TIME_INDEX=1
+
+export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OMP_DYNAMIC=FALSE
+export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_DYNAMIC=FALSE
+export BLIS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1 NUMEXPR_MAX_THREADS=1
+export TMPDIR=/vast/lfang/xig134/JHTDB_CRC/tmp
+export XDG_CACHE_HOME=/ix/lfang/xig134/JHTDB_CRC/cache
+export MPLCONFIGDIR="$XDG_CACHE_HOME/matplotlib"
+mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
+
+# 主 pipeline：本地校验与五尺度 RAM 计算，不自动下载
+"$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
+"$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG"
+
+# 已有压力时求本地 FD4；已有梯度可跳过此条
+"$PYTHON" -m jhtdb_pipeline.pressure_local --stage gradient --block-size 64 \
+  --time-index "$TIME_INDEX" --config "$CONFIG" &&
+"$PYTHON" -m qpower_analysis.qpower_analysis --config "$QCONFIG" --preflight-only &&
+"$PYTHON" -u -m qpower_analysis.qpower_analysis --config "$QCONFIG"
 ```
 
-先编辑本机 YAML 的三条路径、worker 和余量。Linux 复用 Python 入口；macOS shell 包装脚本依赖 `caffeinate`，不要在 Linux 调用。Linux/Windows 的真实环境运行仍需在目标机验证。
+主配置使用 FFT 24 worker、压缩 4 线程、slab 16，磁盘余量各 32 GiB；
+BLAS/OpenMP 等在 shell 中限制为 1 线程。QPower 保留原有整帧 RAM 读入和 numcodecs
+最多 8 线程的默认值，配置为单帧；两条流程、下载和 FD4 顺序执行。
+QPower JSON 默认第 1 帧；换帧时也需同步修改 JSON 的 frame、time 和输入路径。
+原始缓存保留 `/ix/lfang/persistent/state`，结果集中到 `/ix/lfang/xig134/JHTDB_CRC`，
+原有工作文件及 TMPDIR 配置到 `/vast/lfang/xig134/JHTDB_CRC`。
+本次没有执行这些命令或创建外部数据目录。首次环境安装见[系统迁移](docs/system_migration.md)。
+其他 Linux 环境按本机资源修改配置；macOS 的 `caffeinate` 包装脚本仅用于 macOS。
 
 ## Token 持久化与压力/QPower 全流程
 
@@ -148,7 +177,7 @@ Windows：
 py -3 deploy.py --stage all --data-root .local
 ```
 
-Linux 使用 `python3 deploy.py --stage all --data-root .local`。该入口创建本机环境、注入本机路径、doctor、smoke、下载完整速度与压力、保存周期 FD4 梯度，最后执行 QPower；**不运行多 sigma 主计算**。仅下载用 `--stage download`；之后 `--stage qpower --skip-install` 计算梯度并分析。完整 QPower 仅输入加载就约 24 GiB，24 GB Mac 应只下载，转到足够内存机器分析。[完整部署说明](docs/deployment.md)。
+通用 Linux 使用 `python3 deploy.py --stage all --data-root .local`。该入口创建本机环境、注入本机路径、doctor、smoke、下载完整速度与压力、保存周期 FD4 梯度，最后执行 QPower；**不运行多 sigma 主计算**。仅下载用 `--stage download`；之后 `--stage qpower --skip-install` 计算梯度并分析。完整 QPower 仅输入加载就约 24 GiB，24 GB Mac 应只下载，转到足够内存机器分析。[完整部署说明](docs/deployment.md)。Pitt CRC 按上面的 Linux 章节显式指定专用配置；原有 `deploy.py` 不会自动采用这些 Linux 资源参数。
 
 ## 两个 pipeline
 
