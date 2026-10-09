@@ -2,7 +2,7 @@
 
 本项目下载 `isotropic1024coarse` 的完整 `1024³` 速度场，在 `[0,2π)³` 周期域上进行 Gaussian / smooth-sharp 谱滤波、速度梯度、能量传输和 QA，并提供只读 Streamlit GUI。压力下载及 FD4 梯度用于独立 QPower 分析。
 
-当前正式结果格式为 **v9，全域计算、向量场步长 2 存储**。共享原始梯度、滤波速度和滤波梯度保存原网格 `[::2,::2,::2]` 的 `512³` 点；原始速度输入及所有标量场保留完整 `1024³`。本文全部命令从项目根目录执行。
+当前正式结果格式为 **v9，全域计算、向量场步长 2 存储**。共享原始梯度、滤波速度和滤波梯度保存原网格 `[::2,::2,::2]` 的 `512³` 点；原始速度输入及所有标量场保留完整 `1024³`。本文全部命令从项目根目录执行。命令直接写出配置文件、数据目录和帧号；先激活对应虚拟环境，再使用 `python`。每条命令单独执行，确认成功后再执行下一条；任一步报错时先处理错误。
 
 ## 文档入口与新会话阅读顺序
 
@@ -30,43 +30,36 @@
 
 环境和 token 保存在磁盘，关闭终端或结束 Slurm job 后仍可复用；不需要每次重新安装。各系统分别建立环境，不能跨系统复制。项目采用 editable 安装，应保留源码目录；移动项目或更换基础 Python 后重新部署。
 
-### 1. 按系统一键安装环境
+### 1. 按系统创建、激活并安装环境
 
-Windows / PowerShell：先进入你的项目目录，再执行。`.local` 是项目内的数据目录，也可将 `$DataRoot` 改为有足够空间的绝对路径。
+首次安装时先用系统 Python 创建虚拟环境，再激活环境并运行部署。已有对应环境时跳过创建命令。Windows 使用 `Activate.ps1` 激活；macOS/Linux 使用 `source` 激活。
+
+Windows / PowerShell：先进入你的项目目录。`.local` 是项目内的数据目录，也可将命令中的 `.local` 直接替换为有足够空间的绝对路径。
 
 ```powershell
-$DataRoot = '.local'
-$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
-py -3 deploy.py --stage setup --data-root $DataRoot --token-file $TokenPath
-if ($LASTEXITCODE -ne 0) { throw '环境部署失败，请先修复再继续' }
-$Python = '.\.venv-windows\Scripts\python.exe'
-$Config = Join-Path $DataRoot 'pipeline.yaml'
+py -3 -m venv .venv-windows
+.\.venv-windows\Scripts\Activate.ps1
+python deploy.py --stage setup --data-root .local --token-file "$HOME\.secrets\jhtdb_token"
 ```
 
 macOS / zsh 或 bash：先进入你的项目目录。下面默认数据目录与 macOS 配置中的 `.local` 一致。
 
 ```bash
-DATA_ROOT=.local
-TOKEN_FILE="$HOME/.secrets/jhtdb_token"
-python3 deploy.py --stage setup --data-root "$DATA_ROOT" --token-file "$TOKEN_FILE"
-# 确认上一条成功后继续
-PYTHON=.venv-mac/bin/python
-CONFIG=configs/pipeline.macos.yaml
+python3 -m venv .venv-mac
+source .venv-mac/bin/activate
+python deploy.py --stage setup --data-root .local --token-file ~/.secrets/jhtdb_token
 ```
 
 Linux / Pitt CRC：环境入口位于项目的 `.venv-linux`，数据根目录使用持久存储。
 
 ```bash
 cd /ix/lfang/xig134/JHTDB_LOCAL
-DATA_ROOT=/ix/lfang/persistent
-TOKEN_FILE="$HOME/.secrets/jhtdb_token"
-python3 deploy.py --stage setup --data-root "$DATA_ROOT" --token-file "$TOKEN_FILE"
-# 确认上一条成功后继续
-PYTHON=.venv-linux/bin/python
-CONFIG=configs/pipeline.linux.crc.yaml
+python3 -m venv .venv-linux
+source .venv-linux/bin/activate
+python deploy.py --stage setup --data-root /ix/lfang/persistent --token-file ~/.secrets/jhtdb_token
 ```
 
-通用 Linux 可选择自己的 `DATA_ROOT`，并准备匹配本机资源的主配置。`--data-root` 不改变虚拟环境位置；CRC 已有 `.venv-linux` 若是指向持久目录的符号链接，部署会复用其解释器。不要将永久环境建在 job 的临时 scratch 中。
+通用 Linux 可直接替换命令中 `--data-root` 后的目录，并准备匹配本机资源的主配置。`--data-root` 不改变虚拟环境位置；CRC 已有 `.venv-linux` 若是指向持久目录的符号链接，跳过创建命令，激活并复用已有环境。不要将永久环境建在 job 的临时 scratch 中。
 
 <a id="token-file"></a>
 
@@ -74,23 +67,28 @@ CONFIG=configs/pipeline.linux.crc.yaml
 
 已有有效文件时跳过。这里保存你已有的 **JHTDB token**；不涉及 SSH token。文件内容不写进命令历史或 YAML。首次安装时指定的 token 路径可以暂时不存在。
 
+下面的命令会提示 `JHTDB token:`。在提示后粘贴 token 并按回车，输入过程不显示字符；输入完成后自动创建目录和 token 文件。macOS/Linux 文件权限设为 `600`，只有当前用户可读写。输入为空时停止，不创建或覆盖文件。此步骤需单独执行，`deploy.py` 不会自动询问 token。
+
 Windows / PowerShell：
 
 ```powershell
-$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
+.\.venv-windows\Scripts\Activate.ps1
 $Secret = Read-Host 'JHTDB token' -AsSecureString
 $TokenValue = [System.Net.NetworkCredential]::new('', $Secret).Password.Trim()
 if ([string]::IsNullOrWhiteSpace($TokenValue)) { throw '输入为空，未修改 token 文件' }
-New-Item -ItemType Directory -Force (Split-Path $TokenPath) | Out-Null
-[IO.File]::WriteAllText($TokenPath, $TokenValue + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+New-Item -ItemType Directory -Force -Path "$HOME\.secrets"
+[IO.File]::WriteAllText("$HOME\.secrets\jhtdb_token", $TokenValue + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 Remove-Variable TokenValue, Secret
 Remove-Item Env:JHTDB_TOKEN -ErrorAction SilentlyContinue
 ```
 
-macOS / Linux：使用第 1 步选定的虚拟环境解释器，隐藏输入并设置文件权限为 `600`。
+文件自动保存到用户主目录的 `.secrets\jhtdb_token`，没有扩展名。
+
+macOS：
 
 ```bash
-"$PYTHON" - <<'PY'
+source .venv-mac/bin/activate
+python - <<'PY'
 import getpass, os
 from pathlib import Path
 token = getpass.getpass('JHTDB token: ').strip()
@@ -106,11 +104,45 @@ PY
 unset JHTDB_TOKEN
 ```
 
-token 只需录入一次，更新 token 时重做此步。CLI 优先读取非空 `JHTDB_TOKEN`，其次读取 YAML 的 `auth.token_file`；上面的清除环境变量命令让后续使用文件。自定义 token 位置时，录入路径、`--token-file` 和实际运行 YAML 的 `auth.token_file` 必须一致。macOS/Linux 会拒绝组或其他用户具有权限的 token 文件。
+Linux / Pitt CRC：
+
+```bash
+cd /ix/lfang/xig134/JHTDB_LOCAL
+source .venv-linux/bin/activate
+python - <<'PY'
+import getpass, os
+from pathlib import Path
+token = getpass.getpass('JHTDB token: ').strip()
+if not token:
+    raise SystemExit('输入为空，未修改 token 文件')
+path = Path.home() / '.secrets/jhtdb_token'
+path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w', encoding='utf-8') as f:
+    os.fchmod(f.fileno(), 0o600)
+    f.write(token + '\n')
+PY
+unset JHTDB_TOKEN
+```
+
+macOS/Linux 文件自动保存到 `~/.secrets/jhtdb_token`。token 只需录入一次，关闭终端或结束 Slurm job 后文件仍然保留；更新 token 时重新执行录入步骤。CLI 优先读取非空 `JHTDB_TOKEN`，其次读取 YAML 的 `auth.token_file`；上面的清除环境变量命令让后续使用文件。自定义 token 位置时，录入路径、`--token-file` 和实际运行 YAML 的 `auth.token_file` 必须一致。macOS/Linux 会拒绝组或其他用户具有权限的 token 文件。
 
 ### 3. 确认储存路径，再做本地检查
 
-`deploy.py` 每次运行都会从 `configs/pipeline.yaml` 重新生成 `<data-root>/pipeline.yaml`，只替换路径和 token 文件位置。它不会自动采用 macOS 的磁盘 FFT 参数或 CRC 的资源配置。**不要长期修改这个生成文件来保存资源设置**；需要调整时复制为本机独立 YAML，再用 `--config` 指定。
+部署完成后，确认并修改实际运行使用的 YAML。`deploy.py` 每次运行都会从 `configs/pipeline.yaml` 重新生成配置：上述 Windows/macOS 命令生成 `.local/pipeline.yaml`，上述 CRC 命令生成 `/ix/lfang/persistent/pipeline.yaml`。它只替换路径和 token 文件位置，不会自动采用 macOS 的磁盘 FFT 参数或 CRC 的资源配置。
+
+三个系统都不需要复制或重命名 YAML。Windows 直接修改并使用 deploy 生成的 `.local/pipeline.yaml`；macOS 直接修改并使用现有的 `configs/pipeline.macos.yaml`；CRC 直接修改并使用现有的 `configs/pipeline.linux.crc.yaml`。**再次运行 deploy 会覆盖生成文件中的手动修改，Windows 需要重新确认这些设置；现有的 macOS 和 CRC 配置文件不会被 deploy 覆盖。**
+
+CRC 的 `platform` 路径如下；需要换目录时，直接修改 `configs/pipeline.linux.crc.yaml` 中对应的值：
+
+```yaml
+platform:
+  state_root: /ix/lfang/persistent/state
+  run_root: /vast/lfang/xig134/JHTDB_CRC/runs
+  result_root: /ix/lfang/xig134/JHTDB_CRC/results
+```
+
+`state_root` 保存原始输入和状态，`run_root` 保存计算临时文件，`result_root` 保存正式结果。deploy 以 `/ix/lfang/persistent` 为数据目录时，生成文件里的三个路径分别是 `/ix/lfang/persistent/state`、`/ix/lfang/persistent/runs`、`/ix/lfang/persistent/results`；运行时显式指定 CRC YAML 才会使用上面的 `/vast` 工作区。`cleanup_scratch_on_success: true` 会在计算成功后清理对应尺度的临时工作区。
 
 | 内容 | Windows/macOS 默认位置 | Pitt CRC 本文方案 |
 |---|---|---|
@@ -122,37 +154,46 @@ token 只需录入一次，更新 token 时重做此步。CLI 优先读取非空
 | 主计算正式结果 | `.local/results/` | `/ix/lfang/xig134/JHTDB_CRC/results/` |
 | QPower 输出 | `qpower_analysis/output/`（使用 deploy 时） | `/ix/lfang/xig134/JHTDB_CRC/qpower/`（使用 CRC JSON 时） |
 
-Windows/macOS 使用其他 `--data-root` 时，生成配置的 state/runs/results 随之改变；**QPower 的 deploy 输出仍在项目 `qpower_analysis/output/`**。macOS 主流程的 `configs/pipeline.macos.yaml` 默认指向 `.local`，换盘时须另存本机 YAML 并同步三个 `platform` 路径。CRC 必须显式使用 `configs/pipeline.linux.crc.yaml` 和 `qpower_analysis/config.linux.crc.json`，才能采用上表的 `/vast` 工作区和独立结果目录；只给 deploy 传 `/ix/lfang/persistent` 不会启用这些路径。
+Windows/macOS 使用其他 `--data-root` 时，生成配置的 state/runs/results 随之改变；**QPower 的 deploy 输出仍在项目 `qpower_analysis/output/`**。macOS 主流程的 `configs/pipeline.macos.yaml` 默认指向 `.local`，换盘时直接修改其中的三个 `platform` 路径。CRC 必须显式使用 `configs/pipeline.linux.crc.yaml` 和 `qpower_analysis/config.linux.crc.json`，才能采用上表的 `/vast` 工作区和独立结果目录；只给 deploy 传 `/ix/lfang/persistent` 不会启用这些路径。
 
-Windows 使用第 1 步的 `$Python`、`$Config`：
+Windows：
 
 ```powershell
-& $Python -m jhtdb_pipeline auth status --config $Config
-if ($LASTEXITCODE -ne 0) { throw '认证配置检查失败' }
-& $Python -m jhtdb_pipeline doctor --time-index 1 --config $Config
-if ($LASTEXITCODE -ne 0) { throw '本地检查失败' }
+.\.venv-windows\Scripts\Activate.ps1
+python -m jhtdb_pipeline auth status --config .local/pipeline.yaml
+python -m jhtdb_pipeline doctor --time-index 1 --config .local/pipeline.yaml
 ```
 
-macOS/Linux 使用第 1 步的 `PYTHON`、`CONFIG`；CRC 先按下文设置线程与缓存变量：
+macOS：
 
 ```bash
-"$PYTHON" -m jhtdb_pipeline auth status --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline doctor --time-index 1 --config "$CONFIG"
+source .venv-mac/bin/activate
+python -m jhtdb_pipeline auth status --config configs/pipeline.macos.yaml
+python -m jhtdb_pipeline doctor --time-index 1 --config configs/pipeline.macos.yaml
+```
+
+Linux / Pitt CRC：先按下文 Linux 主流程设置线程与缓存环境变量，再做本地检查。
+
+```bash
+cd /ix/lfang/xig134/JHTDB_LOCAL
+source .venv-linux/bin/activate
+python -m jhtdb_pipeline auth status --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline doctor --time-index 1 --config configs/pipeline.linux.crc.yaml
 ```
 
 这些检查不下载科学数据；`doctor` 会检查依赖、路径可写性等。`auth status` 只报告 token 来源，不能证明在线认证有效，后续 `smoke` 才会请求服务。
 
 ### 4. 下次打开终端或新 Slurm job
 
-进入同一个项目目录，重新设置命令所需的 shell 变量即可。环境和 token 文件仍在；`PYTHON`/`CONFIG` 等变量只属于当前终端。
+进入同一个项目目录，激活已有环境即可。环境和 token 文件仍在，不需要重新创建环境或录入 token。Linux CRC 的线程与缓存环境变量需要在新终端或新 job 中重新设置，见下文 Linux 主流程。
 
-| 系统 | 直接调用的解释器 | 默认主配置 |
+| 系统 | 激活命令 | 本文运行使用的主配置 |
 |---|---|---|
-| Windows | `.\.venv-windows\Scripts\python.exe` | `.local/pipeline.yaml` 或你另存的本机 YAML |
-| macOS | `.venv-mac/bin/python` | `configs/pipeline.macos.yaml` |
-| Pitt CRC Linux | `.venv-linux/bin/python` | `configs/pipeline.linux.crc.yaml` |
+| Windows | `.\.venv-windows\Scripts\Activate.ps1` | `.local/pipeline.yaml` |
+| macOS | `source .venv-mac/bin/activate` | `configs/pipeline.macos.yaml` |
+| Pitt CRC Linux | `source .venv-linux/bin/activate` | `configs/pipeline.linux.crc.yaml` |
 
-激活可选：Windows 用 `.\.venv-windows\Scripts\Activate.ps1`，macOS 用 `source .venv-mac/bin/activate`，Linux 用 `source .venv-linux/bin/activate`；退出用 `deactivate`。直接调用表中解释器无需激活，也无需调整 PowerShell 执行策略。旧 Windows 包装脚本使用 `.venv`，与 deploy 创建的 `.venv-windows` 不同；下面统一直接调用 Python。
+激活后统一使用 `python`；退出用 `deactivate`。旧 Windows 包装脚本使用 `.venv`，与 deploy 创建的 `.venv-windows` 不同；下面使用激活后的环境执行命令。
 
 已有环境再调用 deploy 时加 `--skip-install`，并保持相同 `--data-root`、`--token-file`；需要更新依赖时重新执行 `--stage setup`，复用原环境进行安装。[部署细节与分阶段命令](docs/deployment.md)。
 
@@ -165,41 +206,36 @@ macOS/Linux 使用第 1 步的 `PYTHON`、`CONFIG`；CRC 先按下文设置线�
 部署使用默认 `.local` 时：
 
 ```powershell
-$Python = '.\.venv-windows\Scripts\python.exe'
-$Config = '.local/pipeline.yaml'
-$TimeIndex = 1
-# 保存本机资源调整时，先复制为独立 YAML，并将 $Config 改为该文件。
-# 生成配置沿用 RAM FFT / 16 FFT worker / 8 压缩线程；先确认本机资源足够。
-foreach ($Stage in @('doctor', 'plan', 'smoke', 'cache', 'validate-input', 'process-batch')) {
-    & $Python -m jhtdb_pipeline $Stage --time-index $TimeIndex --config $Config
-    if ($LASTEXITCODE -ne 0) { throw "$Stage 失败，停止后续流程" }
-}
-& $Python -m jhtdb_pipeline status --config $Config
-if ($LASTEXITCODE -ne 0) { throw 'status 失败' }
-& $Python -m jhtdb_pipeline gui --config $Config --port 8501
+.\.venv-windows\Scripts\Activate.ps1
+python -m jhtdb_pipeline doctor --time-index 1 --config .local/pipeline.yaml
+python -m jhtdb_pipeline plan --time-index 1 --config .local/pipeline.yaml
+python -m jhtdb_pipeline smoke --time-index 1 --config .local/pipeline.yaml
+python -m jhtdb_pipeline cache --time-index 1 --config .local/pipeline.yaml
+python -m jhtdb_pipeline validate-input --time-index 1 --config .local/pipeline.yaml
+python -m jhtdb_pipeline process-batch --time-index 1 --config .local/pipeline.yaml
+python -m jhtdb_pipeline status --config .local/pipeline.yaml
+python -m jhtdb_pipeline gui --config .local/pipeline.yaml --port 8501
 ```
 
-Windows RAM FFT 的共享缓存本身约 84.09 GiB，完整峰值更高。内存不足时先调整独立本机配置，不能只减少线程。自定义数据目录时 `$Config` 应指向该目录的配置。
+Windows 生成配置沿用 RAM FFT / 16 FFT worker / 8 压缩线程。RAM FFT 的共享缓存本身约 84.09 GiB，完整峰值更高。内存不足时先调整 `.local/pipeline.yaml`，不能只减少线程。自定义数据目录时，将每条命令中 `--config` 后的文件路径直接替换为该数据目录中 deploy 生成的 `pipeline.yaml` 路径。
 
 ### macOS / zsh 或 bash
 
 24 GB Mac 使用已有磁盘 FFT 配置，完整域峰值尚未实测；空间规划见 [macOS 资源方案](docs/macos_main_pipeline_run.md)。
 
 ```bash
-PYTHON=.venv-mac/bin/python
-CONFIG=configs/pipeline.macos.yaml
-TIME_INDEX=500
-"$PYTHON" -m jhtdb_pipeline doctor --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline plan --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline smoke --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline cache --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
-caffeinate -i "$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline status --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline gui --config "$CONFIG" --port 8501
+source .venv-mac/bin/activate
+python -m jhtdb_pipeline doctor --time-index 500 --config configs/pipeline.macos.yaml
+python -m jhtdb_pipeline plan --time-index 500 --config configs/pipeline.macos.yaml
+python -m jhtdb_pipeline smoke --time-index 500 --config configs/pipeline.macos.yaml
+python -m jhtdb_pipeline cache --time-index 500 --config configs/pipeline.macos.yaml
+python -m jhtdb_pipeline validate-input --time-index 500 --config configs/pipeline.macos.yaml
+python -u -m jhtdb_pipeline process-batch --time-index 500 --config configs/pipeline.macos.yaml
+python -m jhtdb_pipeline status --config configs/pipeline.macos.yaml
+python -m jhtdb_pipeline gui --config configs/pipeline.macos.yaml --port 8501
 ```
 
-换帧只改 `TIME_INDEX`；使用其他数据盘时将 `CONFIG` 改为路径已调整的本机 YAML。GUI 地址 `http://127.0.0.1:8501`。可选包装脚本见 [scripts README](scripts/README.md)，其默认帧号为 1，必须显式传入需要的帧号。
+换帧时修改每条命令的 `--time-index 500`；使用其他数据盘时修改 `configs/pipeline.macos.yaml` 的三个 `platform` 路径。计算期间应保持机器唤醒。GUI 地址 `http://127.0.0.1:8501`。可选包装脚本见 [scripts README](scripts/README.md)，其默认帧号为 1，必须显式传入需要的帧号。
 
 ### Linux / Pitt CRC
 
@@ -209,25 +245,26 @@ caffeinate -i "$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_I
 
 ```bash
 cd /ix/lfang/xig134/JHTDB_LOCAL
-PYTHON=.venv-linux/bin/python
-CONFIG=configs/pipeline.linux.crc.yaml
-QCONFIG=qpower_analysis/config.linux.crc.json
-TIME_INDEX=1
+source .venv-linux/bin/activate
 export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OMP_DYNAMIC=FALSE
 export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_DYNAMIC=FALSE
 export BLIS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1 NUMEXPR_MAX_THREADS=1
 export TMPDIR=/vast/lfang/xig134/JHTDB_CRC/tmp
 export XDG_CACHE_HOME=/ix/lfang/xig134/JHTDB_CRC/cache
-export MPLCONFIGDIR="$XDG_CACHE_HOME/matplotlib"
-mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
+export MPLCONFIGDIR=/ix/lfang/xig134/JHTDB_CRC/cache/matplotlib
+mkdir -p /vast/lfang/xig134/JHTDB_CRC/tmp
+mkdir -p /ix/lfang/xig134/JHTDB_CRC/cache
+mkdir -p /ix/lfang/xig134/JHTDB_CRC/cache/matplotlib
 ```
 
-已有完整速度输入时，主流程只做本地验证与五尺度计算：
+已有完整速度输入时，完成上面的线程与缓存设置，再执行本地验证与五尺度计算：
 
 ```bash
-"$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG"
+source .venv-linux/bin/activate
+python -m jhtdb_pipeline validate-input --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -u -m jhtdb_pipeline process-batch --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline status --config configs/pipeline.linux.crc.yaml
 ```
 
 首次下载、FD4、Slurm 申请和后处理的完整命令见 [Linux 资源方案](docs/linux_crc_run.md)。配置为 FFT 24 worker、压缩 4 线程、slab 16；顺序运行两个 pipeline。使用原有 CLI，没有额外 Linux Python 入口或运行脚本。
@@ -239,30 +276,30 @@ mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
 Windows / PowerShell，沿用首次部署的数据和 token 路径：
 
 ```powershell
-$DataRoot = '.local'
-$TokenPath = Join-Path $HOME '.secrets\jhtdb_token'
-py -3 deploy.py --stage all --skip-install --data-root $DataRoot --token-file $TokenPath
+.\.venv-windows\Scripts\Activate.ps1
+python deploy.py --stage all --skip-install --data-root .local --token-file "$HOME\.secrets\jhtdb_token"
 ```
 
 macOS，以下全流程仅适用于内存足够的机器：
 
 ```bash
-python3 deploy.py --stage all --skip-install --data-root .local --token-file "$HOME/.secrets/jhtdb_token"
+source .venv-mac/bin/activate
+python deploy.py --stage all --skip-install --data-root .local --token-file ~/.secrets/jhtdb_token
 ```
 
 只有下载时将 `all` 改为 `download`；已有完整速度和压力时改为 `qpower`。完整选项、输出位置与后台运行见 [部署手册](docs/deployment.md)。
 
-Pitt CRC 使用专用 YAML/JSON 保持 `/ix` 与 `/vast` 分工；沿用上面的 Linux shell 变量：
+Pitt CRC 使用专用 YAML/JSON 保持 `/ix` 与 `/vast` 分工；先完成上面的 Linux 线程与缓存设置。已有压力时计算 FD4；已有完整梯度可跳过 FD4 命令：
 
 ```bash
-# 已有压力时计算 FD4；已有完整梯度可跳过这一条
-"$PYTHON" -m jhtdb_pipeline.pressure_local --stage gradient --block-size 64 \
-  --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m qpower_analysis.qpower_analysis --config "$QCONFIG" --preflight-only &&
-"$PYTHON" -u -m qpower_analysis.qpower_analysis --config "$QCONFIG"
+cd /ix/lfang/xig134/JHTDB_LOCAL
+source .venv-linux/bin/activate
+python -m jhtdb_pipeline.pressure_local --stage gradient --block-size 64 --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m qpower_analysis.qpower_analysis --config qpower_analysis/config.linux.crc.json --preflight-only
+python -u -m qpower_analysis.qpower_analysis --config qpower_analysis/config.linux.crc.json
 ```
 
-CRC JSON 默认第 1 帧，换帧须同步修改 frame、time 和输入路径，不能只修改 `TIME_INDEX`。下载命令及顺序 I/O 方案见 [Linux 资源方案](docs/linux_crc_run.md)。
+CRC JSON 默认第 1 帧，换帧须同时修改命令的 `--time-index 1` 和 `qpower_analysis/config.linux.crc.json` 里的 frame、time 及输入路径。下载命令及顺序 I/O 方案见 [Linux 资源方案](docs/linux_crc_run.md)。
 
 ## 两个 pipeline
 
