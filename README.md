@@ -258,16 +258,25 @@ mkdir -p /ix/lfang/xig134/JHTDB_CRC/cache
 mkdir -p /ix/lfang/xig134/JHTDB_CRC/cache/matplotlib
 ```
 
-已有完整速度输入时，完成上面的线程与缓存设置，再执行本地验证与五尺度计算：
+首次运行或速度缓存尚未完成时，依次检查配置与空间、执行在线 smoke，并下载或续传完整速度缓存：
 
 ```bash
 source .venv-linux/bin/activate
+python -m jhtdb_pipeline doctor --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline plan --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline smoke --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline cache --time-index 1 --config configs/pipeline.linux.crc.yaml
+```
+
+`cache` 会下载缺失块、校验已有块并复用有效缓存。确认命令成功后，再执行输入验证与五尺度计算：
+
+```bash
 python -m jhtdb_pipeline validate-input --time-index 1 --config configs/pipeline.linux.crc.yaml
 python -u -m jhtdb_pipeline process-batch --time-index 1 --config configs/pipeline.linux.crc.yaml
 python -m jhtdb_pipeline status --config configs/pipeline.linux.crc.yaml
 ```
 
-首次下载、FD4、Slurm 申请和后处理的完整命令见 [Linux 资源方案](docs/linux_crc_run.md)。配置为 FFT 24 worker、压缩 4 线程、slab 16；顺序运行两个 pipeline。使用原有 CLI，没有额外 Linux Python 入口或运行脚本。
+压力下载、FD4、Slurm 申请和后处理的完整命令见 [Linux 资源方案](docs/linux_crc_run.md)。配置为 FFT 24 worker、压缩 4 线程、slab 16；顺序运行两个 pipeline。使用原有 CLI，没有额外 Linux Python 入口或运行脚本。
 
 ## 部署完成后：压力 / QPower pipeline
 

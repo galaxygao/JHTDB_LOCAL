@@ -35,7 +35,7 @@ Pi 正负分拆 closure 仍是保留的 weak-asymmetry QA，配置项独立命�
 ```bash
 .venv-mac/bin/python -m pytest tests qpower_analysis/tests -q
 .venv-mac/bin/python scripts/update_docs.py --check
-bash -n scripts/run_main_macos.sh scripts/download_pressure_mac.sh
+bash -n scripts/run_main_macos.sh
 git diff --check
 ```
 

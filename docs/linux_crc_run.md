@@ -118,7 +118,16 @@ mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
 
 ## 使用原有入口
 
-已有完整速度输入时，主流程直接执行本地验证与 batch：
+首次运行或速度缓存尚未完成时，先检查配置与空间、执行在线 smoke，并下载或续传完整速度缓存：
+
+```bash
+"$PYTHON" -m jhtdb_pipeline doctor --time-index "$TIME_INDEX" --config "$CONFIG" &&
+"$PYTHON" -m jhtdb_pipeline plan --time-index "$TIME_INDEX" --config "$CONFIG" &&
+"$PYTHON" -m jhtdb_pipeline smoke --time-index "$TIME_INDEX" --config "$CONFIG" &&
+"$PYTHON" -m jhtdb_pipeline cache --time-index "$TIME_INDEX" --config "$CONFIG"
+```
+
+`cache` 下载缺失块、校验已有块并复用有效缓存。已有完整速度输入时，可以从下面的本地验证开始，随后执行 batch：
 
 ```bash
 "$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
@@ -141,10 +150,9 @@ mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
 物理时间保持原公式 `(time_index-1)*0.002`。原有 preflight 校验压力/梯度元数据，
 没有新增按 dtype 估算内存的代码。
 
-若需要下载缺失输入，显式执行下面的原有命令；**这些命令会真实下载，本次未执行**：
+若 QPower 缺少标量压力，显式执行下面的原有命令；**此命令会真实下载，本次未执行**：
 
 ```bash
-"$PYTHON" -m jhtdb_pipeline cache --time-index "$TIME_INDEX" --config "$CONFIG"
 "$PYTHON" -m jhtdb_pipeline.pressure_local --stage download \
   --time-index "$TIME_INDEX" --config "$CONFIG"
 ```

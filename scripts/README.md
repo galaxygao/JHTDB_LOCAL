@@ -78,7 +78,6 @@ JHTDB_MAIN_CONFIG="$CONFIG" bash scripts/run_main_macos.sh "$TIME_INDEX"
 
 - `python scripts/update_docs.py` / `--check`：生成函数/参数参考并校验文档链接。
 - QPower 下载辅助脚本位于 [qpower_analysis/scripts](../qpower_analysis/scripts)，说明见 [QPower README](../qpower_analysis/README.md)。
-- `download_pressure_mac.sh`：独立服务端梯度下载，见 [对应说明](../docs/mac_download_transfer.md)；不是 deploy 本地 FD4 流程。
 - `run_stage.ps1` 的 `-WithPressureGradient`、`run_smooth_sharp_full_pipeline.ps1` 的同名开关调用服务端梯度入口。
 
 返回 [根 README](../README.md)，完整 [命令参考](../docs/cli_reference.md)。
