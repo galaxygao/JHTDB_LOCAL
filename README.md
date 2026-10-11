@@ -246,11 +246,6 @@ python -m jhtdb_pipeline gui --config configs/pipeline.macos.yaml --port 8501
 ```bash
 cd /ix/lfang/xig134/JHTDB_LOCAL
 source .venv-linux/bin/activate
-PYTHON=.venv-linux/bin/python
-CONFIG=configs/pipeline.linux.crc.yaml
-QCONFIG=qpower_analysis/config.linux.crc.json
-TIME_INDEX=1
-
 export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OMP_DYNAMIC=FALSE
 export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_DYNAMIC=FALSE
 export BLIS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
@@ -264,13 +259,13 @@ mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
 按顺序执行主流程：
 
 ```bash
-"$PYTHON" -m jhtdb_pipeline doctor --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline plan --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline smoke --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline cache --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -m jhtdb_pipeline status --config "$CONFIG"
+python -m jhtdb_pipeline doctor --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline plan --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline smoke --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline cache --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline validate-input --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -u -m jhtdb_pipeline process-batch --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m jhtdb_pipeline status --config configs/pipeline.linux.crc.yaml
 ```
 
 Slurm 申请、资源估算和后处理见 [Linux 资源方案](docs/linux_crc_run.md)。配置为 FFT 24 worker、压缩 4 线程、slab 16；顺序运行两个 pipeline。使用原有 CLI，没有额外 Linux Python 入口或运行脚本。
@@ -295,16 +290,16 @@ python deploy.py --stage all --skip-install --data-root .local --token-file ~/.s
 
 只有下载时将 `all` 改为 `download`；已有完整速度和压力时改为 `qpower`。完整选项、输出位置与后台运行见 [部署手册](docs/deployment.md)。
 
-Pitt CRC 使用专用 YAML/JSON 保持 `/ix` 与 `/vast` 分工，并继续使用上面已经赋值的变量。缺少标量压力时先下载；已有压力时直接计算 FD4；已有完整梯度可跳过前两条：
+Pitt CRC 使用专用 YAML/JSON 保持 `/ix` 与 `/vast` 分工。缺少标量压力时先下载；已有压力时直接计算 FD4；已有完整梯度可跳过前两条：
 
 ```bash
-"$PYTHON" -m jhtdb_pipeline.pressure_local --stage download --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -u -m jhtdb_pipeline.pressure_local --stage gradient --block-size 64 --time-index "$TIME_INDEX" --config "$CONFIG"
-"$PYTHON" -m qpower_analysis.qpower_analysis --config "$QCONFIG" --preflight-only
-"$PYTHON" -u -m qpower_analysis.qpower_analysis --config "$QCONFIG"
+python -m jhtdb_pipeline.pressure_local --stage download --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -u -m jhtdb_pipeline.pressure_local --stage gradient --block-size 64 --time-index 1 --config configs/pipeline.linux.crc.yaml
+python -m qpower_analysis.qpower_analysis --config qpower_analysis/config.linux.crc.json --preflight-only
+python -u -m qpower_analysis.qpower_analysis --config qpower_analysis/config.linux.crc.json
 ```
 
-CRC JSON 默认第 1 帧，换帧须同时修改 `TIME_INDEX` 和 `qpower_analysis/config.linux.crc.json` 里的 frame、time 及输入路径。顺序 I/O 方案见 [Linux 资源方案](docs/linux_crc_run.md)。
+CRC JSON 默认第 1 帧，换帧须同时修改命令中的 `--time-index 1` 和 `qpower_analysis/config.linux.crc.json` 里的 frame、time 及输入路径。顺序 I/O 方案见 [Linux 资源方案](docs/linux_crc_run.md)。
 
 ## 两个 pipeline
 
