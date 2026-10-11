@@ -80,7 +80,7 @@ srun --pty bash -l
 `pressure_gradient_cache.zarr` 是另一数据源，不应混用。
 模板的 `gradient_method: spectral` 仅在配置 `pressure_path` 时生效；供应梯度时直接读该梯度。
 
-## 存储与环境设置
+## 存储规划
 
 | 路径 | 用途 | 未压缩容量规划 |
 |---|---|---|
@@ -94,84 +94,33 @@ srun --pty bash -l
 `memory` 关闭可选的磁盘 FFT 缓存；原有每尺度工作文件仍使用文件映射，不修改其实现。
 本次没有创建上述外部目录、移动输入或修改 `/ix/lfang/persistent/pipeline.yaml`。
 
-在实际运行前，在新 allocation 的 shell 中设置一次：
-
-```bash
-cd /ix/lfang/xig134/JHTDB_LOCAL
-PYTHON=.venv-linux/bin/python
-CONFIG=configs/pipeline.linux.crc.yaml
-QCONFIG=qpower_analysis/config.linux.crc.json
-TIME_INDEX=1
-
-export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OMP_DYNAMIC=FALSE
-export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_DYNAMIC=FALSE
-export BLIS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1 NUMEXPR_MAX_THREADS=1
-export TMPDIR=/vast/lfang/xig134/JHTDB_CRC/tmp
-export XDG_CACHE_HOME=/ix/lfang/xig134/JHTDB_CRC/cache
-export MPLCONFIGDIR="$XDG_CACHE_HOME/matplotlib"
-mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
-```
-
-这些变量在导入 NumPy/SciPy/Matplotlib 前设置。不要把两条 pipeline 或多个 sigma 同时
-放到后台运行；本文以顺序命令控制 I/O 并发，没有新增跨 pipeline 的锁或自动资源检查。
+不要把两条 pipeline 或多个 sigma 同时放到后台运行；本文以顺序命令控制 I/O 并发，
+没有新增跨 pipeline 的锁或自动资源检查。
 
 ## 使用原有入口
 
-首次运行或速度缓存尚未完成时，先检查配置与空间、执行在线 smoke，并下载或续传完整速度缓存：
+环境变量、解释器与配置赋值、速度下载、主计算、压力下载、FD4 和 QPower 命令统一放在
+[根 README 的 Linux / Pitt CRC 章节](../README.md#linux--pitt-crc)，避免两处命令发生偏差。
+`cache` 下载缺失块、校验已有块并复用有效缓存。若只算一个尺度，在根 README 的
+`process-batch` 命令后加 `--sigma-grids 10`，随后补齐其他尺度。
 
-```bash
-"$PYTHON" -m jhtdb_pipeline doctor --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline plan --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline smoke --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline cache --time-index "$TIME_INDEX" --config "$CONFIG"
-```
-
-`cache` 下载缺失块、校验已有块并复用有效缓存。已有完整速度输入时，可以从下面的本地验证开始，随后执行 batch：
-
-```bash
-"$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline status --config "$CONFIG"
-```
-
-若只算一个尺度，在原有 `process-batch` 命令后加 `--sigma-grids 10`，随后补齐其他尺度。
-上述命令不会自动下载。已有压力时，FD4/QPower 使用原有模块：
-
-```bash
-"$PYTHON" -u -m jhtdb_pipeline.pressure_local --stage gradient --block-size 64 \
-  --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m qpower_analysis.qpower_analysis --config "$QCONFIG" --preflight-only &&
-"$PYTHON" -u -m qpower_analysis.qpower_analysis --config "$QCONFIG"
-```
-
-已有验证完成的梯度可以跳过第一条。QPower JSON 默认第 1 帧；换帧时需要同步修改 JSON
-里的 `frame`、`time`、两个 `tNNNNNN` 输入路径，不能仅修改 shell 中的 `TIME_INDEX`。
-物理时间保持原公式 `(time_index-1)*0.002`。原有 preflight 校验压力/梯度元数据，
-没有新增按 dtype 估算内存的代码。
-
-若 QPower 缺少标量压力，显式执行下面的原有命令；**此命令会真实下载，本次未执行**：
-
-```bash
-"$PYTHON" -m jhtdb_pipeline.pressure_local --stage download \
-  --time-index "$TIME_INDEX" --config "$CONFIG"
-```
-
-下载需要 token；主流程的 `doctor` 也要求已配置 token 来源。读取 `JHTDB_TOKEN` 或配置中的 `${HOME}/.secrets/jhtdb_token`。
-下载、FD4、主计算和 QPower 分阶段顺序执行。原有 `deploy.py` 保持原样，它会生成自身的
-本机配置，不会自动采用这里的 Linux 参数；CRC 按上述命令显式指定配置。
+下载需要 token；主流程的 `doctor` 也要求已配置 token 来源。读取 `JHTDB_TOKEN` 或配置中的
+`${HOME}/.secrets/jhtdb_token`。下载、FD4、主计算和 QPower 分阶段顺序执行。原有 `deploy.py`
+会生成自身的本机配置，不会自动采用 CRC 参数；CRC 命令显式使用专用 YAML/JSON。
+QPower JSON 默认第 1 帧；换帧时需要同步修改 JSON 里的 `frame`、`time` 和两个
+`tNNNNNN` 输入路径。物理时间保持原公式 `(time_index-1)*0.002`。
 
 QPower 完成后，原有后处理按依赖顺序执行：
 
 ```bash
 RUN_DIR=/ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
-"$PYTHON" -m qpower_analysis.threshold_contributions --run-dir "$RUN_DIR" &&
-"$PYTHON" -m qpower_analysis.conditional_tails --run-dir "$RUN_DIR" &&
-"$PYTHON" -m qpower_analysis.conditional_ranges --run-dir "$RUN_DIR" --coverage .95 &&
-"$PYTHON" -m qpower_analysis.gradient_given_q --run-dir "$RUN_DIR" &&
-"$PYTHON" -m qpower_analysis.angle_statistics --run-dir "$RUN_DIR" &&
-"$PYTHON" -m qpower_analysis.lowest_q_bin_angles --run-dir "$RUN_DIR" &&
-"$PYTHON" -m qpower_analysis.near_zero_diagnostic --run-dir "$RUN_DIR"
+python -m qpower_analysis.threshold_contributions --run-dir "$RUN_DIR" &&
+python -m qpower_analysis.conditional_tails --run-dir "$RUN_DIR" &&
+python -m qpower_analysis.conditional_ranges --run-dir "$RUN_DIR" --coverage .95 &&
+python -m qpower_analysis.gradient_given_q --run-dir "$RUN_DIR" &&
+python -m qpower_analysis.angle_statistics --run-dir "$RUN_DIR" &&
+python -m qpower_analysis.lowest_q_bin_angles --run-dir "$RUN_DIR" &&
+python -m qpower_analysis.near_zero_diagnostic --run-dir "$RUN_DIR"
 ```
 
 H0 连通分析与 cavity/mesh 可视化是原有的可选步骤，不自动加入上述统计链。
