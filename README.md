@@ -261,20 +261,15 @@ export MPLCONFIGDIR="$XDG_CACHE_HOME/matplotlib"
 mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
 ```
 
-首次运行或速度缓存尚未完成时，依次检查配置与空间、执行在线 smoke，并下载或续传完整速度缓存：
+按顺序执行主流程：
 
 ```bash
-"$PYTHON" -m jhtdb_pipeline doctor --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline plan --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -m jhtdb_pipeline smoke --time-index "$TIME_INDEX" --config "$CONFIG" &&
+"$PYTHON" -m jhtdb_pipeline doctor --time-index "$TIME_INDEX" --config "$CONFIG"
+"$PYTHON" -m jhtdb_pipeline plan --time-index "$TIME_INDEX" --config "$CONFIG"
+"$PYTHON" -m jhtdb_pipeline smoke --time-index "$TIME_INDEX" --config "$CONFIG"
 "$PYTHON" -m jhtdb_pipeline cache --time-index "$TIME_INDEX" --config "$CONFIG"
-```
-
-`cache` 会下载缺失块、校验已有块并复用有效缓存。确认命令成功后，再执行输入验证与五尺度计算：
-
-```bash
-"$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG" &&
-"$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG" &&
+"$PYTHON" -m jhtdb_pipeline validate-input --time-index "$TIME_INDEX" --config "$CONFIG"
+"$PYTHON" -u -m jhtdb_pipeline process-batch --time-index "$TIME_INDEX" --config "$CONFIG"
 "$PYTHON" -m jhtdb_pipeline status --config "$CONFIG"
 ```
 
