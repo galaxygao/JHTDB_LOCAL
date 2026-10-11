@@ -99,7 +99,7 @@ srun --pty bash -l
 
 ## 使用原有入口
 
-环境变量、解释器与配置赋值、速度下载、主计算、压力下载、FD4 和 QPower 命令统一放在
+环境变量、速度下载、主计算、压力下载、FD4 和 QPower 命令统一放在
 [根 README 的 Linux / Pitt CRC 章节](../README.md#linux--pitt-crc)，避免两处命令发生偏差。
 `cache` 下载缺失块、校验已有块并复用有效缓存。若只算一个尺度，在根 README 的
 `process-batch` 命令后加 `--sigma-grids 10`，随后补齐其他尺度。
@@ -113,14 +113,13 @@ QPower JSON 默认第 1 帧；换帧时需要同步修改 JSON 里的 `frame`、
 QPower 完成后，原有后处理按依赖顺序执行：
 
 ```bash
-RUN_DIR=/ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
-python -m qpower_analysis.threshold_contributions --run-dir "$RUN_DIR" &&
-python -m qpower_analysis.conditional_tails --run-dir "$RUN_DIR" &&
-python -m qpower_analysis.conditional_ranges --run-dir "$RUN_DIR" --coverage .95 &&
-python -m qpower_analysis.gradient_given_q --run-dir "$RUN_DIR" &&
-python -m qpower_analysis.angle_statistics --run-dir "$RUN_DIR" &&
-python -m qpower_analysis.lowest_q_bin_angles --run-dir "$RUN_DIR" &&
-python -m qpower_analysis.near_zero_diagnostic --run-dir "$RUN_DIR"
+python -m qpower_analysis.threshold_contributions --run-dir /ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
+python -m qpower_analysis.conditional_tails --run-dir /ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
+python -m qpower_analysis.conditional_ranges --run-dir /ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id --coverage .95
+python -m qpower_analysis.gradient_given_q --run-dir /ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
+python -m qpower_analysis.angle_statistics --run-dir /ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
+python -m qpower_analysis.lowest_q_bin_angles --run-dir /ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
+python -m qpower_analysis.near_zero_diagnostic --run-dir /ix/lfang/xig134/JHTDB_CRC/qpower/实际run-id
 ```
 
 H0 连通分析与 cavity/mesh 可视化是原有的可选步骤，不自动加入上述统计链。
